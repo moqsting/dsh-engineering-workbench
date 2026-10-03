@@ -1,0 +1,30 @@
+{
+  "name": "dsh-water-treatment-engineering",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "水处理与电气自动化整合包的侧边栏工作台按钮插件：DSH 内一键启动 / 停止本地工作台",
+  "license": "MIT",
+  "author": { "name": "moqsting", "url": "https://github.com/moqsting" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moqsting/dsh-water-treatment-engineering.git"
+  },
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": ["src", "cordis.patch.yml"],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web" }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4"
+  },
+  "keywords": ["dsh", "dspack", "workbench", "water-treatment", "整合包"],
+  "scripts": {
+    "test": "node --test --experimental-test-isolation=none \"test/*.test.js\""
+  }
+}
