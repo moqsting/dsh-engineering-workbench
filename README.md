@@ -1,4 +1,4 @@
-# dsh-water-treatment-engineering
+# dsh-engineering-workbench
 
 水处理与电气自动化整合包的侧边栏「工作台」按钮插件（DSH bundle）。
 
@@ -49,5 +49,5 @@ npm test           # node --test test/
 整合包通过 git 依赖引用本仓库（manifest v5 契约）：
 
 ```json
-"dependencies": { "github:moqsting/dsh-water-treatment-engineering": "<commit sha>" }
+"dependencies": { "github:moqsting/dsh-engineering-workbench": "<commit sha>" }
 ```
