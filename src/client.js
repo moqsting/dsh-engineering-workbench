@@ -1,11 +1,11 @@
 /**
- * dsh-water-treatment-engineering —— 浏览器侧插件（client bundle）。
+ * dsh-engineering-workbench —— 浏览器侧插件（client bundle）。
  * 侧边栏底部按钮，状态机：
  *   空闲 → 点击启动工作台（"正在启动中"）→ 就绪后 window.open（"正在运行"）
  *         → 再点击关闭工作台（"正在关闭"）→ 关闭网页（回到空闲，无字样）
  */
 window.__ModuleLoader__.load({
-  id: "dsh-water-treatment-engineering",
+  id: "dsh-engineering-workbench",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
@@ -127,7 +127,7 @@ window.__ModuleLoader__.load({
     const inject = ["slots"];
     function apply(ctx) {
       ctx.slots.inject("sidebar.footer.action", () =>
-        ctx.slots.register({ name: "sidebar.footer.action", id: "dsh-water-treatment-engineering-button" }, WorkbenchButton),
+        ctx.slots.register({ name: "sidebar.footer.action", id: "dsh-engineering-workbench-button" }, WorkbenchButton),
       );
     }
 
