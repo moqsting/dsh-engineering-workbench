@@ -1,4 +1,4 @@
-// dsh-water-treatment-engineering —— host 插件（cordis 面）。
+// dsh-engineering-workbench —— host 插件（cordis 面）。
 // 侧边栏「工作台」按钮的宿主侧：/api/workbench/{status,start,stop} 三个路由。
 // 契约（与官方 dsh-pack-plugin/src/index.js 一致）：
 //   - 第三方 bundle 的宿主→客户端直连路由走 webServer（ctx.connection.rpc.handle 对第三方不可用）；
@@ -7,7 +7,7 @@
 import { resolveRuntime } from './runtime.js';
 import { findRunning, startWorkbench, stopWorkbench } from './workbench.js';
 
-export const name = 'dsh-water-treatment-engineering';
+export const name = 'dsh-engineering-workbench';
 
 export const inject = ['webServer', 'connection'];
 
@@ -49,7 +49,7 @@ export function apply(ctx) {
         sendJson(res, 200, { running: port !== null, port });
       },
     }),
-    'dsh-water-treatment-engineering: GET /api/workbench/status',
+    'dsh-engineering-workbench: GET /api/workbench/status',
   );
 
   ctx.effect(
@@ -65,7 +65,7 @@ export function apply(ctx) {
         sendJson(res, 200, { ok: true, port: result.port });
       },
     }),
-    'dsh-water-treatment-engineering: POST /api/workbench/start',
+    'dsh-engineering-workbench: POST /api/workbench/start',
   );
 
   ctx.effect(
@@ -78,6 +78,6 @@ export function apply(ctx) {
         sendJson(res, 200, { ok: true });
       },
     }),
-    'dsh-water-treatment-engineering: POST /api/workbench/stop',
+    'dsh-engineering-workbench: POST /api/workbench/stop',
   );
 }
