@@ -1,5 +1,5 @@
 {
-  "name": "dsh-water-treatment-engineering",
+  "name": "dsh-engineering-workbench",
   "version": "1.0.0",
   "type": "module",
   "description": "水处理与电气自动化整合包的侧边栏工作台按钮插件：DSH 内一键启动 / 停止本地工作台",
@@ -7,7 +7,7 @@
   "author": { "name": "moqsting", "url": "https://github.com/moqsting" },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/moqsting/dsh-water-treatment-engineering.git"
+    "url": "git+https://github.com/moqsting/dsh-engineering-workbench.git"
   },
   "main": "src/index.js",
   "exports": {
