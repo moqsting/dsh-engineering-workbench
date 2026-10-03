@@ -1,8 +1,8 @@
-# dsh-water-treatment-engineering bundle patch：插入 host 插件。
+# dsh-engineering-workbench bundle patch：插入 host 插件。
 # host 面（exports["."]）是 cordis 插件：inject webServer + connection，
 # 在 webServer 上挂 /api/workbench/{start,stop,status} 三个路由。
 # connection 用于请求授权栅栏（复用 Host/Origin 信任围栏）。
 - insert:
-    - id: dsh-water-treatment-engineering
-      name: 'dsh-water-treatment-engineering'
+    - id: dsh-engineering-workbench
+      name: 'dsh-engineering-workbench'
       inject: [webServer, connection]
