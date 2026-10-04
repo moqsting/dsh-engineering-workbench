@@ -158,24 +158,32 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /* ---------- 文件页（浏览走 host browse；预览走 DSH 原生文件查看器） ---------- */
+    /* ---------- 文件页（从工作区目录开始；预览走 DSH 原生查看器） ---------- */
     function FilesPage(props) {
       const scope = props && props.scope;
+      const [workspace, setWorkspace] = useState(null); // null=加载中；""=未设置
       const [cur, setCur] = useState("");
       const [parent, setParent] = useState(null);
-      const [roots, setRoots] = useState([]);
       const [entries, setEntries] = useState([]);
       const [err, setErr] = useState(null);
 
       const loadDir = useCallback(async (p) => {
         setErr(null);
         try {
-          const d = await post("/api/workbench/browse", { path: p || "" });
-          setCur(d.path || ""); setParent(d.parent || null);
-          setRoots(d.roots || []); setEntries(d.entries || []);
+          const d = await post("/api/workbench/browse", { path: p });
+          setCur(d.path || ""); setParent(d.parent || null); setEntries(d.entries || []);
         } catch (e2) { setErr(e2.message); }
       }, []);
-      useEffect(() => { loadDir(""); }, [loadDir]);
+
+      useEffect(() => {
+        (async () => {
+          try {
+            const d = await get("/api/workbench/workspace");
+            setWorkspace(d.workspace || "");
+            if (d.workspace) await loadDir(d.workspace);
+          } catch (e2) { setWorkspace(""); setErr(e2.message); }
+        })();
+      }, [loadDir]);
 
       // 用 DSH 原生文件查看器打开（better-sidebar 的 editor tab，支持文本/markdown/图片/PDF 等）
       const previewFile = (it) => {
@@ -185,8 +193,8 @@ window.__ModuleLoader__.load({
         catch (e2) { setErr("打开预览失败：" + String(e2 && e2.message ? e2.message : e2)); }
       };
       const revealInExplorer = async (it) => {
-        try { await post("/api/workbench/proxy/api/explorer", { path: it.path }); }
-        catch (e2) { setErr("资源管理器打开失败（需整合包工作台后端）：" + e2.message); }
+        try { await post("/api/workbench/reveal", { path: it.path }); }
+        catch (e2) { setErr("无法在资源管理器中打开：" + e2.message); }
       };
       const rowStyle = { display: "flex", gap: 8, padding: "5px 8px", cursor: "pointer", borderRadius: 6, alignItems: "center" };
       const hover = {
@@ -194,18 +202,28 @@ window.__ModuleLoader__.load({
         onMouseLeave: (ev) => { ev.currentTarget.style.background = "transparent"; },
       };
 
+      if (workspace === null) {
+        return e("div", { style: S.page }, e("div", { style: S.body }, e("div", { style: S.muted }, "加载中…")));
+      }
+      if (!workspace) {
+        return e("div", { style: S.page }, e("div", { style: S.body },
+          e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "尚未设置工作区"),
+          e("div", { style: S.muted }, "请到「设置」页选择工作区目录；设置后这里会显示工作区内的文件与目录。")));
+      }
+      const atRoot = cur && cur.toLowerCase() === workspace.toLowerCase();
+      const relShown = cur && cur.length > workspace.length
+        ? cur.slice(workspace.length).replace(/^[\\/]+/, "")
+        : "";
       return e("div", { style: S.page },
         e("div", { style: S.nav },
-          e("button", { style: S.btn(false), onClick: () => loadDir("") }, "盘符"),
-          parent ? e("button", { style: S.btn(false), onClick: () => loadDir(parent) }, "↑ 上级") : null,
-          e("span", { style: { ...S.muted, alignSelf: "center", marginLeft: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, cur || "（盘符）"),
+          (!atRoot && parent) ? e("button", { style: S.btn(false), onClick: () => loadDir(parent) }, "↑ 上级") : null,
+          e("button", { style: S.btn(false), onClick: () => loadDir(workspace) }, "工作区根"),
+          e("span", { style: { ...S.muted, alignSelf: "center", marginLeft: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+            relShown || "（工作区根）"),
         ),
         e("div", { style: S.body },
           err ? e("div", { style: S.err }, err) : null,
           e("div", { style: { ...S.muted, marginBottom: 6 } }, "点击文件 → 用 DSH 原生查看器预览"),
-          roots.length ? e("div", { style: { marginBottom: 8 } },
-            roots.map((r) => e("div", { key: r, style: { ...rowStyle, fontWeight: 600 }, onClick: () => loadDir(r), ...hover }, "💽 " + r)),
-          ) : null,
           entries.map((it) => e("div", {
             key: it.path, style: rowStyle, ...hover,
             onClick: () => (it.isDir ? loadDir(it.path) : previewFile(it)),
@@ -214,7 +232,7 @@ window.__ModuleLoader__.load({
             e("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, it.name),
             e("button", { style: S.btn(false), onClick: (ev) => { ev.stopPropagation(); revealInExplorer(it); } }, "打开位置"),
           )),
-          (!roots.length && entries.length === 0 && !err) ? e("div", { style: S.muted }, "（空目录）") : null,
+          entries.length === 0 && !err ? e("div", { style: S.muted }, "（空目录）") : null,
         ),
       );
     }
@@ -299,11 +317,11 @@ window.__ModuleLoader__.load({
       const [msg, setMsg] = useState(null);
       const [browsing, setBrowsing] = useState(false);
       const load = useCallback(async () => {
-        try { await ensureStarted(); const d = await get("/api/workbench/proxy/api/workspace"); setWs(d); setInput(d.workspace || ""); } catch (e2) { setMsg(e2.message); }
+        try { const d = await get("/api/workbench/workspace"); setWs(d); setInput(d.workspace || ""); } catch (e2) { setMsg(e2.message); }
       }, []);
       useEffect(() => { load(); }, [load]);
       const savePath = async (p) => {
-        try { await ensureStarted(); const d = await post("/api/workbench/proxy/api/workspace", { path: p }); if (d.ok) { setMsg("已保存：" + d.workspace); setInput(d.workspace); } } catch (e2) { setMsg(e2.message); }
+        try { const d = await post("/api/workbench/workspace", { path: p }); if (d.ok) { setMsg("已保存：" + d.workspace); setInput(d.workspace); } } catch (e2) { setMsg(e2.message); }
       };
       const save = () => savePath(input);
       const pick = async () => {
@@ -367,20 +385,34 @@ window.__ModuleLoader__.load({
     }
 
     /* ---------- 工作台面板（一级导航） ---------- */
-    const PAGES = [
-      { id: "tools", label: "工具", component: ToolsPage },
+    // 核心页面：只依赖 DSH 本体 + 本插件，任何环境都可用。
+    const CORE_PAGES = [
       { id: "files", label: "文件", component: FilesPage },
-      { id: "resources", label: "资源", component: ResourcesPage },
       { id: "settings", label: "设置", component: SettingsPage },
+    ];
+    // 整合包增强页面：需要 <profile>/wta 后端（server.py）才显示。
+    const PACK_PAGES = [
+      { id: "tools", label: "工具", component: ToolsPage },
+      { id: "resources", label: "资源", component: ResourcesPage },
       { id: "env", label: "环境", component: EnvPage },
     ];
     function WorkbenchPanel(props) {
       const scope = props && props.scope;
-      const [page, setPage] = useState("tools");
-      const current = PAGES.find((p) => p.id === page);
+      const [backend, setBackend] = useState(false);
+      const [page, setPage] = useState("files");
+      useEffect(() => {
+        (async () => {
+          try {
+            const s = await get("/api/workbench/status");
+            setBackend(!!s.backend);
+          } catch { /* 探测失败按无后端处理 */ }
+        })();
+      }, []);
+      const pages = backend ? [...CORE_PAGES, ...PACK_PAGES] : CORE_PAGES;
+      const current = pages.find((p) => p.id === page) || pages[0];
       return e("div", { style: S.page },
         e("div", { style: S.nav },
-          PAGES.map((p) => e("button", { key: p.id, onClick: () => setPage(p.id), style: S.btn(page === p.id) }, p.label)),
+          pages.map((p) => e("button", { key: p.id, onClick: () => setPage(p.id), style: S.btn(current.id === p.id) }, p.label)),
         ),
         e("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } },
           e(current.component, { scope }),
