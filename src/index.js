@@ -7,6 +7,7 @@
 import { resolveRuntime } from './runtime.js';
 import { findRunning, startWorkbench, stopWorkbench } from './workbench.js';
 import { readdirSync, statSync } from 'node:fs';
+import { execFile } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -205,5 +206,40 @@ export function apply(ctx) {
       },
     }),
     'dsh-engineering-workbench: POST /api/workbench/browse',
+  );
+
+  // Windows 原生目录选择对话框（FolderBrowserDialog）—— 体验与旧网页版一致：
+  // 带左侧导航、新建文件夹等系统能力。非 Windows 或无 PowerShell 时前端回退到应用内目录浏览器。
+  ctx.effect(
+    () => ctx.webServer.register({
+      kind: 'exact',
+      path: '/api/workbench/pickdir',
+      handler: async (req, res) => {
+        if (guardPost(req, res)) return;
+        if (process.platform !== 'win32') {
+          sendJson(res, 501, { ok: false, error: '非 Windows 平台不支持原生目录对话框。' });
+          return;
+        }
+        const ps = [
+          'Add-Type -AssemblyName System.Windows.Forms;',
+          '[System.Windows.Forms.Application]::EnableVisualStyles();',
+          '$d = New-Object System.Windows.Forms.FolderBrowserDialog;',
+          "$d.Description = '选择工作区目录';",
+          '$d.ShowNewFolderButton = $true;',
+          'if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }',
+        ].join('');
+        execFile('powershell', ['-NoProfile', '-STA', '-Command', ps],
+          { windowsHide: true, timeout: 300000, encoding: 'utf8' },
+          (err, stdout) => {
+            if (err) {
+              sendJson(res, 500, { ok: false, error: '原生对话框调用失败：' + String(err.message || err) });
+              return;
+            }
+            const chosen = String(stdout || '').trim();
+            sendJson(res, 200, { ok: true, path: chosen || null });
+          });
+      },
+    }),
+    'dsh-engineering-workbench: POST /api/workbench/pickdir',
   );
 }
