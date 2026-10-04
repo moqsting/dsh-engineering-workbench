@@ -255,11 +255,16 @@ window.__ModuleLoader__.load({
         try { await ensureStarted(); const d = await get("/api/workbench/proxy/api/workspace"); setWs(d); setInput(d.workspace || ""); } catch (e2) { setMsg(e2.message); }
       }, []);
       useEffect(() => { load(); }, [load]);
-      const pick = async () => {
-        try { await ensureStarted(); const d = await post("/api/workbench/proxy/api/workspace/pick"); if (d.ok) { setMsg("已选择：" + d.path); load(); } else setMsg("未选择（可能取消）"); } catch (e2) { setMsg(e2.message); }
+      const savePath = async (p) => {
+        try { await ensureStarted(); const d = await post("/api/workbench/proxy/api/workspace", { path: p }); if (d.ok) { setMsg("已保存：" + d.workspace); setInput(d.workspace); } } catch (e2) { setMsg(e2.message); }
       };
-      const save = async () => {
-        try { await ensureStarted(); const d = await post("/api/workbench/proxy/api/workspace", { path: input }); if (d.ok) { setMsg("已保存：" + d.workspace); load(); } } catch (e2) { setMsg(e2.message); }
+      const save = () => savePath(input);
+      const pick = async () => {
+        try {
+          if (!directoryPicker || typeof directoryPicker.pick !== "function") { setMsg("当前 DSH 环境不提供目录选择器。"); return; }
+          const path = await directoryPicker.pick();
+          if (path) await savePath(path); else setMsg("已取消。");
+        } catch (e2) { setMsg(e2.message); }
       };
       return e("div", { style: S.page },
         e("div", { style: S.body },
@@ -364,8 +369,10 @@ window.__ModuleLoader__.load({
     }
 
     var betterSidebar = null;
-    const inject = ["slots"];
+    var directoryPicker = null;
+    const inject = ["slots", "remote.directoryPicker"];
     function apply(ctx) {
+      directoryPicker = ctx.remote ? ctx.remote.directoryPicker : null;
       ctx.inject(["betterSidebar"], (scoped) => {
         const service = scoped.betterSidebar;
         if (!service || typeof service.registerTab !== "function") return;
