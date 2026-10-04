@@ -349,6 +349,8 @@ window.__ModuleLoader__.load({
             e("button", { style: S.btn(false), onClick: pick }, "浏览选择…"),
           ),
           msg ? e("div", { style: { marginTop: 12, ...(msg.startsWith("已") ? S.ok : S.muted) } }, msg) : null,
+          e("div", { style: { ...S.muted, marginTop: 16, fontSize: 11, opacity: 0.7 } },
+            "工作台插件 v1.0.0 · 构建 2026-10-04T22 · 独立模式（无整合包后端）"),
           browsing ? e(DirectoryBrowser, {
             onSelect: (p) => { setBrowsing(false); if (p) { setInput(p); savePath(p); } },
             onClose: () => setBrowsing(false),
