@@ -370,9 +370,16 @@ window.__ModuleLoader__.load({
 
     var betterSidebar = null;
     var directoryPicker = null;
-    const inject = ["slots", "remote.directoryPicker"];
+    const inject = ["slots"];
     function apply(ctx) {
-      directoryPicker = ctx.remote ? ctx.remote.directoryPicker : null;
+      // 软依赖访问 DSH 原生目录选择器（不硬声明 remote.directoryPicker，避免该命名空间缺失时插件激活失败）
+      try {
+        ctx.inject(["remote.directoryPicker"], (scoped) => {
+          if (scoped.remote && scoped.remote.directoryPicker) directoryPicker = scoped.remote.directoryPicker;
+        });
+      } catch (e) {
+        directoryPicker = null;
+      }
       ctx.inject(["betterSidebar"], (scoped) => {
         const service = scoped.betterSidebar;
         if (!service || typeof service.registerTab !== "function") return;
