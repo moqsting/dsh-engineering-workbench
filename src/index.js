@@ -6,6 +6,9 @@
 // 路径契约：工作台在 <profileDir>/wta/ui/（整合包 overrides/ 落点），由整合包 manifest 声明。
 import { resolveRuntime } from './runtime.js';
 import { findRunning, startWorkbench, stopWorkbench } from './workbench.js';
+import { readdirSync } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 
 export const name = 'dsh-engineering-workbench';
 
@@ -150,5 +153,42 @@ export function apply(ctx) {
       },
     }),
     'dsh-engineering-workbench: /api/workbench/proxy/*',
+  );
+
+  // 应用内目录浏览（自包含、跨平台，不依赖 server.py / directoryPicker 后端）：
+  // POST /api/workbench/browse {"path": "<绝对路径>"} → 返回该目录的子目录列表 + 父目录。
+  ctx.effect(
+    () => ctx.webServer.register({
+      kind: 'exact',
+      path: '/api/workbench/browse',
+      handler: async (req, res) => {
+        if (guardPost(req, res)) return;
+        let body;
+        try {
+          body = await readBody(req);
+        } catch (err) {
+          sendJson(res, 413, { ok: false, error: String(err.message || err) });
+          return;
+        }
+        let p = '';
+        try { p = (JSON.parse(body.toString('utf8') || '{}').path) || ''; } catch { p = ''; }
+        // 空路径 → 用户主目录；相对路径 → 相对 profile 根
+        let base = p;
+        if (!base) base = runtime.home || os.homedir();
+        else if (!path.isAbsolute(base)) base = path.join(runtime.profileDir || runtime.home, base);
+        try {
+          const dirents = readdirSync(base, { withFileTypes: true });
+          const entries = dirents
+            .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+            .map((d) => ({ name: d.name, path: path.join(base, d.name) }))
+            .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+          const parent = path.dirname(base);
+          sendJson(res, 200, { path: base, parent: parent !== base ? parent : null, entries });
+        } catch (err) {
+          sendJson(res, 500, { ok: false, error: '无法读取目录：' + String(err.message || err) });
+        }
+      },
+    }),
+    'dsh-engineering-workbench: POST /api/workbench/browse',
   );
 }
