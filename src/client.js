@@ -1,16 +1,14 @@
 /**
  * dsh-engineering-workbench —— 浏览器侧插件（client bundle）。
  *
- * 工作台 UI 内嵌进 DSH（better-sidebar Tab），完整对齐原先工作台的功能页面：
- *   - 一级导航 5 页：工具 / 文件 / 资源 / 设置 / 环境；
- *   - 工具页：8 个工具（报价归一/比对/成本/差异、CAD 识图、CAD 探测、冒烟测试、依赖重建）；
- *   - 文件页：目录浏览 + 文本预览 + 资源管理器打开 + 建目录；
- *   - 资源页：模板/数据/文档快捷直达；
- *   - 设置页：工作区路径（显示/选择/修改）；
- *   - 环境页：Python/pydeps/CAD/技能/招标日报状态。
+ * 工作台内嵌进 DSH 原生主面板（与官方「插件」面板同机制、同位置）：
+ *   - 侧栏顶部图标「工作台」与官方「插件」并列（同一 sidebar.panellist slot）；
+ *   - 主区域面板含 文件 / 设置（核心页，独立可用），
+ *     以及 工具 / 资源 / 环境（整合包增强页，检测到 <profile>/wta 后端才显示）；
+ *   - 文件页从工作区目录开始浏览；点击文件调用 DSH 原生右侧栏文档预览。
  *
- * 后端 API 全部走 host 的 /api/workbench/proxy/* 反向代理（同源，避免 CORS）。
- * better-sidebar 是可选 peer：ctx.inject(['betterSidebar']) 软依赖等待，缺失时按钮优雅降级。
+ * 核心能力（工作区路径、目录浏览、文件预览）由 host 路由与 DSH 本体直接提供，不依赖整合包；
+ * 整合包相关的工具/资源/环境接口走 host 的 /api/workbench/proxy/* 反向代理（同源，避免 CORS）。
  */
 window.__ModuleLoader__.load({
   id: "dsh-engineering-workbench",
@@ -21,7 +19,15 @@ window.__ModuleLoader__.load({
     const e = React.createElement;
     const { useState, useEffect, useCallback } = React;
 
-    const TAB_ID = "dsh-engineering-workbench:workbench";
+    // DSH 文件资源地址语法（本地实现，避免跨包 value-import 的 purity 门禁；
+    // 与官方 @deepseek-ai/dsh-util-workspace-path 的 fileAddressFor 一致）。
+    const FILE_ADDRESS_PREFIX = "dsh-resource://file/";
+    const encodeSeg = (s) => encodeURIComponent(s).replace(/%3A/gi, ":");
+    function sessionFileAddress(sessionId, p) {
+      const normalized = String(p).replace(/\\/g, "/").replace(/^(?:\.\/)+/, "");
+      return FILE_ADDRESS_PREFIX + "session/" + encodeSeg(sessionId) + "/"
+        + normalized.split("/").map(encodeSeg).join("/");
+    }
 
     /* ---------- API helper（走 host 反向代理） ---------- */
     async function api(path, opts) {
@@ -159,8 +165,7 @@ window.__ModuleLoader__.load({
     }
 
     /* ---------- 文件页（从工作区目录开始；预览走 DSH 原生查看器） ---------- */
-    function FilesPage(props) {
-      const scope = props && props.scope;
+    function FilesPage() {
       const [workspace, setWorkspace] = useState(null); // null=加载中；""=未设置
       const [cur, setCur] = useState("");
       const [parent, setParent] = useState(null);
@@ -185,11 +190,13 @@ window.__ModuleLoader__.load({
         })();
       }, [loadDir]);
 
-      // 用 DSH 原生文件查看器打开（better-sidebar 的 editor tab，支持文本/markdown/图片/PDF 等）
+      // 用 DSH 原生文件查看器打开（右侧栏 documentPreview：文本/markdown/图片/PDF/Excel/Office）
       const previewFile = (it) => {
-        if (!betterSidebar || typeof betterSidebar.openFile !== "function") { setErr("当前 DSH 环境不提供文件预览（需 dsh-better-sidebar）。"); return; }
-        if (!scope) { setErr("缺少会话作用域，无法打开预览。"); return; }
-        try { betterSidebar.openFile(scope, it.path, it.name); }
+        if (!sidebarRight || typeof sidebarRight.openResource !== "function") { setErr("当前 DSH 环境不提供原生文件预览。"); return; }
+        let sessionId;
+        try { sessionId = sidebarRight.mounted ? sidebarRight.mounted.getSnapshot() : void 0; } catch { sessionId = void 0; }
+        if (sessionId === undefined || sessionId === null) { setErr("当前没有活动的会话，暂时无法打开预览。"); return; }
+        try { sidebarRight.openResource(sessionFileAddress(sessionId, it.path)); }
         catch (e2) { setErr("打开预览失败：" + String(e2 && e2.message ? e2.message : e2)); }
       };
       const revealInExplorer = async (it) => {
@@ -395,8 +402,7 @@ window.__ModuleLoader__.load({
       { id: "resources", label: "资源", component: ResourcesPage },
       { id: "env", label: "环境", component: EnvPage },
     ];
-    function WorkbenchPanel(props) {
-      const scope = props && props.scope;
+    function WorkbenchPanel() {
       const [backend, setBackend] = useState(false);
       const [page, setPage] = useState("files");
       useEffect(() => {
@@ -414,7 +420,7 @@ window.__ModuleLoader__.load({
           pages.map((p) => e("button", { key: p.id, onClick: () => setPage(p.id), style: S.btn(current.id === p.id) }, p.label)),
         ),
         e("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } },
-          e(current.component, { scope }),
+          e(current.component, {}),
         ),
       );
     }
@@ -430,55 +436,29 @@ window.__ModuleLoader__.load({
         e("circle", { key: "c2", cx: 13, cy: 14, r: 1.5 }));
     }
 
-    /* ---------- 侧栏「工作台」按钮 ---------- */
-    function WorkbenchButton(props) {
-      const wide = props && props.wide;
-      const open = () => {
-        if (!betterSidebar || typeof betterSidebar.openTab !== "function") {
-          window.alert("工作台需要 dsh-better-sidebar 插件（未检测到）。"); return;
-        }
-        if (!betterSidebar.isTabEnabled || betterSidebar.isTabEnabled(TAB_ID)) {
-          betterSidebar.openTab({ type: TAB_ID });
-        } else {
-          window.alert("工作台 Tab 已在设置中被禁用，请先在 better-sidebar 设置页启用。");
-        }
-      };
-      return e("button", {
-        title: "打开工作台", "aria-label": "工作台", onClick: open,
-        style: { display: "flex", alignItems: "center", gap: 6, border: "none", background: "transparent",
-          color: "inherit", opacity: 0.72, cursor: "pointer", padding: "6px 10px", borderRadius: 8,
-          fontSize: 13, lineHeight: 1, width: wide ? "100%" : "auto", justifyContent: wide ? "flex-start" : "center" },
-        onMouseEnter: (ev) => { ev.currentTarget.style.opacity = "1"; ev.currentTarget.style.background = "rgba(127,127,127,0.14)"; },
-        onMouseLeave: (ev) => { ev.currentTarget.style.opacity = "0.72"; ev.currentTarget.style.background = "transparent"; },
-      },
-        e(WorkbenchIcon, { size: 16 }),
-        wide ? e("span", { key: "t" }, "工作台") : null);
-    }
-
-    var betterSidebar = null;
+    /* ---------- 侧栏「工作台」图标（与官方「插件」并列） ---------- */
+    var sidebarRight = null;
+    const PANEL_ID = "dsh-engineering-workbench";
     const inject = ["slots"];
     function apply(ctx) {
-      ctx.inject(["betterSidebar"], (scoped) => {
-        const service = scoped.betterSidebar;
-        if (!service || typeof service.registerTab !== "function") return;
-        betterSidebar = service;
-        scoped.effect(() => service.registerTab({
-          id: TAB_ID,
-          title: "工作台",
-          description: "水处理与电气自动化工程工具台：报价/CAD/工艺计算/Modbus 仿真",
-          icon: (size) => e(WorkbenchIcon, { size }),
-          order: 50,
-          single: true,
-          component: (tabProps) => e(WorkbenchPanel, { ...tabProps }),
-        }), "dsh-engineering-workbench: register workbench tab");
+      // 原生文件预览桥（DSH 官方右侧栏 documentPreview；软依赖，缺失仅影响预览）
+      ctx.inject(["sidebarRight"], (scoped) => {
+        if (scoped.sidebarRight) sidebarRight = scoped.sidebarRight;
       });
 
-      ctx.slots.inject("sidebar.footer.action", () =>
-        ctx.slots.register(
-          { name: "sidebar.footer.action", id: "dsh-engineering-workbench-button" },
-          WorkbenchButton,
-        ),
-      );
+      // 主区域面板：与官方「插件」面板完全平行（点击侧栏图标 → 切到此面板）
+      ctx.slots.inject("main", () => ctx.slots.register({
+        name: "main",
+        key: PANEL_ID,
+      }, (props) => e(WorkbenchPanel, { ...props })));
+
+      // 侧栏顶部图标：与官方「插件」同一 slot、同一渲染路径（字号/大小/位置一致）
+      ctx.slots.inject("sidebar.panellist", () => ctx.slots.register({
+        name: "sidebar.panellist",
+        id: PANEL_ID,
+        order: 10,
+        label: () => "工作台",
+      }, WorkbenchIcon));
     }
 
     exports.inject = inject;
