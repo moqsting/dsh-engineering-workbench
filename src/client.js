@@ -309,7 +309,17 @@ window.__ModuleLoader__.load({
         try { await ensureStarted(); const d = await post("/api/workbench/proxy/api/workspace", { path: p }); if (d.ok) { setMsg("已保存：" + d.workspace); setInput(d.workspace); } } catch (e2) { setMsg(e2.message); }
       };
       const save = () => savePath(input);
-      const pick = () => setBrowsing(true);
+      const pick = async () => {
+        // 优先用 Windows 原生目录对话框（体验与旧网页版一致）；后端不支持或调用失败则回退应用内浏览器
+        try {
+          const d = await post("/api/workbench/pickdir");
+          if (d && d.path) { setInput(d.path); await savePath(d.path); }
+          else if (d && d.ok) { setMsg("已取消。"); }
+          else { setBrowsing(true); }
+        } catch (e2) {
+          setBrowsing(true);
+        }
+      };
       return e("div", { style: S.page },
         e("div", { style: S.body },
           e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "工作区路径"),
