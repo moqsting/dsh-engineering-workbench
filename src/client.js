@@ -252,32 +252,45 @@ window.__ModuleLoader__.load({
       const { onSelect, onClose } = props;
       const [cur, setCur] = useState("");
       const [parent, setParent] = useState(null);
+      const [roots, setRoots] = useState([]);
       const [entries, setEntries] = useState([]);
       const [err, setErr] = useState(null);
       const loadDir = async (p) => {
         setErr(null);
         try {
           const d = await post("/api/workbench/browse", { path: p || "" });
-          setCur(d.path); setParent(d.parent); setEntries(d.entries || []);
+          setCur(d.path || ""); setParent(d.parent || null);
+          setRoots(d.roots || []); setEntries(d.entries || []);
         } catch (e2) { setErr(e2.message); }
       };
       useEffect(() => { loadDir(""); }, []);
+      const rowStyle = {
+        padding: "5px 8px", cursor: "pointer", borderRadius: 6,
+        display: "flex", alignItems: "center", gap: 6,
+      };
+      const hover = {
+        onMouseEnter: (ev) => { ev.currentTarget.style.background = "rgba(127,127,127,0.15)"; },
+        onMouseLeave: (ev) => { ev.currentTarget.style.background = "transparent"; },
+      };
       return e("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 } },
-        e("div", { style: { background: "#1e1e1e", borderRadius: 10, padding: 16, width: 480, maxHeight: "70vh", display: "flex", flexDirection: "column", color: "#e5e5e5" } },
+        e("div", { style: { background: "#1e1e1e", borderRadius: 10, padding: 16, width: 520, maxHeight: "74vh", display: "flex", flexDirection: "column", color: "#e5e5e5" } },
           e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "选择工作区目录"),
-          e("div", { style: { ...S.mono, marginBottom: 8, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, cur),
+          e("div", { style: { ...S.mono, marginBottom: 8, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, cur || "（选择盘符开始）"),
           err ? e("div", { style: S.err }, err) : null,
-          e("div", { style: { flex: 1, overflow: "auto", marginBottom: 8, minHeight: 200 } },
-            parent ? e("div", { style: { padding: "5px 8px", cursor: "pointer", borderRadius: 6 }, onClick: () => loadDir(parent) }, "📁 ..") : null,
-            entries.map((it) => e("div", { key: it.path, style: { padding: "5px 8px", cursor: "pointer", borderRadius: 6 },
-              onClick: () => loadDir(it.path), onMouseEnter: (ev) => { ev.currentTarget.style.background = "rgba(127,127,127,0.15)"; },
-              onMouseLeave: (ev) => { ev.currentTarget.style.background = "transparent"; } },
-              "📁 " + it.name)),
-            entries.length === 0 && !err ? e("div", { style: S.muted }, "（空目录）") : null,
+          e("div", { style: { flex: 1, overflow: "auto", marginBottom: 8, minHeight: 220 } },
+            // 盘符/根列表（自由起点，可切到任意盘）
+            roots.length ? e("div", { style: { marginBottom: 6 } },
+              e("div", { style: { ...S.muted, padding: "2px 8px" } }, "盘符"),
+              roots.map((r) => e("div", { key: r, style: { ...rowStyle, fontWeight: 600 }, onClick: () => loadDir(r), ...hover }, "💽 " + r)),
+            ) : null,
+            parent ? e("div", { style: rowStyle, onClick: () => loadDir(parent), ...hover }, "⬆ 上级目录") : null,
+            entries.map((it) => e("div", { key: it.path, style: rowStyle, onClick: () => loadDir(it.path), ...hover }, "📁 " + it.name)),
+            (!roots.length && !parent && entries.length === 0 && !err) ? e("div", { style: S.muted }, "（空目录）") : null,
           ),
-          e("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end" } },
+          e("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" } },
+            e("button", { style: S.btn(false), onClick: () => loadDir("") }, "盘符"),
             e("button", { style: S.btn(false), onClick: onClose }, "取消"),
-            e("button", { style: S.primaryBtn, onClick: () => onSelect(cur) }, "选择此目录"),
+            e("button", { style: { ...S.primaryBtn, opacity: cur ? 1 : 0.5 }, disabled: !cur, onClick: () => onSelect(cur) }, "选择此目录"),
           ),
         ),
       );
