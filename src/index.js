@@ -272,9 +272,14 @@ export function apply(ctx) {
         try {
           const dirents = readdirSync(base, { withFileTypes: true });
           const entries = dirents
-            .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
-            .map((d) => ({ name: d.name, path: path.join(base, d.name) }))
-            .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+            .filter((d) => !d.name.startsWith('.'))
+            .map((d) => {
+              const full = path.join(base, d.name);
+              let isDir = d.isDirectory();
+              if (d.isSymbolicLink()) { try { isDir = statSync(full).isDirectory(); } catch { /* 忽略 */ } }
+              return { name: d.name, path: full, isDir };
+            })
+            .sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name, 'zh-CN') : (a.isDir ? -1 : 1)));
           const parent = path.dirname(base);
           sendJson(res, 200, { path: base, parent: parent !== base ? parent : null, roots: [], entries });
         } catch (err) {
