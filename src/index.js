@@ -6,7 +6,7 @@
 // 路径契约：工作台在 <profileDir>/wta/ui/（整合包 overrides/ 落点），由整合包 manifest 声明。
 import { resolveRuntime } from './runtime.js';
 import { findRunning, startWorkbench, stopWorkbench } from './workbench.js';
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, statSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
@@ -158,7 +158,9 @@ export function apply(ctx) {
       handler: async (req, res) => {
         if (rejected(req, res)) return;
         const port = await findRunning();
-        sendJson(res, 200, { running: port !== null, port });
+        const server = runtime.profileDir ? path.join(runtime.profileDir, 'wta', 'ui', 'server.py') : null;
+        const backend = !!(server && existsSync(server));
+        sendJson(res, 200, { running: port !== null, port, backend });
       },
     }),
     'dsh-engineering-workbench: GET /api/workbench/status',
@@ -288,6 +290,90 @@ export function apply(ctx) {
       },
     }),
     'dsh-engineering-workbench: POST /api/workbench/browse',
+  );
+
+  // 工作区路径（插件自管，不依赖整合包 server.py）：
+  // 配置存 <profileDir>/wta/config/ui-workspace.json —— 与 server.py 同路径，
+  // 有整合包时两边共享同一份配置；纯插件环境则由本插件自行创建/维护。
+  const workspaceConfigPath = () =>
+    path.join(runtime.profileDir || runtime.home, 'wta', 'config', 'ui-workspace.json');
+  ctx.effect(
+    () => ctx.webServer.register({
+      kind: 'exact',
+      path: '/api/workbench/workspace',
+      handler: async (req, res) => {
+        if (rejected(req, res)) return;
+        const cfg = workspaceConfigPath();
+        if (req.method === 'GET') {
+          let ws = '';
+          try {
+            const j = JSON.parse(readFileSync(cfg, 'utf8'));
+            ws = typeof j.workspace === 'string' ? j.workspace : '';
+          } catch { /* 未设置 */ }
+          sendJson(res, 200, { workspace: ws });
+          return;
+        }
+        if (req.method !== 'POST') {
+          res.statusCode = 405; res.setHeader('allow', 'GET, POST'); res.end(); return;
+        }
+        let body;
+        try {
+          body = await readBody(req);
+        } catch (err) {
+          sendJson(res, 413, { ok: false, error: String(err.message || err) }); return;
+        }
+        let p = '';
+        try { p = (JSON.parse(body.toString('utf8') || '{}').path) || ''; } catch { p = ''; }
+        if (!p || !path.isAbsolute(p)) { sendJson(res, 400, { ok: false, error: '需要绝对路径。' }); return; }
+        let isDir = false;
+        try { isDir = statSync(p).isDirectory(); } catch { /* 不存在 */ }
+        if (!isDir) { sendJson(res, 400, { ok: false, error: '目录不存在。' }); return; }
+        try {
+          mkdirSync(path.dirname(cfg), { recursive: true });
+          writeFileSync(cfg, JSON.stringify({ workspace: p }, null, 2), 'utf8');
+        } catch (err) {
+          sendJson(res, 500, { ok: false, error: '保存失败：' + String(err.message || err) }); return;
+        }
+        sendJson(res, 200, { ok: true, workspace: p });
+      },
+    }),
+    'dsh-engineering-workbench: /api/workbench/workspace',
+  );
+
+  // 在资源管理器中打开/定位（Node 直接调用系统文件管理器，不依赖整合包后端）。
+  ctx.effect(
+    () => ctx.webServer.register({
+      kind: 'exact',
+      path: '/api/workbench/reveal',
+      handler: async (req, res) => {
+        if (guardPost(req, res)) return;
+        let body;
+        try {
+          body = await readBody(req);
+        } catch (err) {
+          sendJson(res, 413, { ok: false, error: String(err.message || err) }); return;
+        }
+        let p = '';
+        try { p = (JSON.parse(body.toString('utf8') || '{}').path) || ''; } catch { p = ''; }
+        if (!p || !path.isAbsolute(p)) { sendJson(res, 400, { ok: false, error: '需要绝对路径。' }); return; }
+        let isDir = false;
+        try { isDir = statSync(p).isDirectory(); } catch { /* 不存在则按文件处理 */ }
+        try {
+          if (process.platform === 'win32') {
+            if (isDir) execFile('explorer.exe', [p], { windowsHide: true }, () => {});
+            else execFile('explorer.exe', ['/select,', p], { windowsHide: true }, () => {});
+          } else if (process.platform === 'darwin') {
+            execFile('open', [isDir ? p : path.dirname(p)], () => {});
+          } else {
+            execFile('xdg-open', [isDir ? p : path.dirname(p)], () => {});
+          }
+          sendJson(res, 200, { ok: true });
+        } catch (err) {
+          sendJson(res, 500, { ok: false, error: String(err.message || err) });
+        }
+      },
+    }),
+    'dsh-engineering-workbench: POST /api/workbench/reveal',
   );
 
   // 现代文件夹选择器（IFileOpenDialog，与资源管理器同款）—— 置顶在当前窗口之上。
