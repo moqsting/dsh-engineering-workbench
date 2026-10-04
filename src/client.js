@@ -425,25 +425,40 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /* ---------- 图标 ---------- */
+    /* ---------- 图标（点击切换：已激活则收回会话） ---------- */
     function WorkbenchIcon(props) {
       const size = (props && props.size) || 16;
       return e("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
-        strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
+        strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true,
+        onClick: (ev) => { ev.stopPropagation(); toggleWorkbenchPanel(); } },
         e("rect", { key: "r", x: 3, y: 4, width: 18, height: 16, rx: 2 }),
         e("line", { key: "l1", x1: 3, y1: 9, x2: 21, y2: 9 }),
         e("circle", { key: "c", cx: 8, cy: 14, r: 1.5 }),
         e("circle", { key: "c2", cx: 13, cy: 14, r: 1.5 }));
     }
 
+    // 切换工作台主面板：已激活则收回（activePanelId = null 即会话），否则激活。
+    function toggleWorkbenchPanel() {
+      if (!layoutService || typeof layoutService.selectPanel !== "function") return;
+      let active = null;
+      try { active = layoutService.panelInfo ? layoutService.panelInfo.getSnapshot().activePanelId : null; }
+      catch { active = null; }
+      layoutService.selectPanel(active === PANEL_ID ? null : PANEL_ID);
+    }
+
     /* ---------- 侧栏「工作台」图标（与官方「插件」并列） ---------- */
     var sidebarRight = null;
+    var layoutService = null;
     const PANEL_ID = "dsh-engineering-workbench";
     const inject = ["slots"];
     function apply(ctx) {
       // 原生文件预览桥（DSH 官方右侧栏 documentPreview；软依赖，缺失仅影响预览）
       ctx.inject(["sidebarRight"], (scoped) => {
         if (scoped.sidebarRight) sidebarRight = scoped.sidebarRight;
+      });
+      // 布局服务（面板切换；软依赖）
+      ctx.inject(["layout"], (scoped) => {
+        if (scoped.layout) layoutService = scoped.layout;
       });
 
       // 主区域面板：与官方「插件」面板完全平行（点击侧栏图标 → 切到此面板）
