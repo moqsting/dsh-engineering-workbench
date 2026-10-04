@@ -158,66 +158,63 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /* ---------- 文件页 ---------- */
-    function FilesPage() {
-      const [rel, setRel] = useState("");
-      const [entries, setEntries] = useState(null);
-      const [preview, setPreview] = useState(null);
+    /* ---------- 文件页（浏览走 host browse；预览走 DSH 原生文件查看器） ---------- */
+    function FilesPage(props) {
+      const scope = props && props.scope;
+      const [cur, setCur] = useState("");
+      const [parent, setParent] = useState(null);
+      const [roots, setRoots] = useState([]);
+      const [entries, setEntries] = useState([]);
       const [err, setErr] = useState(null);
 
       const loadDir = useCallback(async (p) => {
-        setErr(null); setPreview(null);
+        setErr(null);
         try {
-          await ensureStarted();
-          const d = await get("/api/workbench/proxy/api/dirs?path=" + encodeURIComponent(p || ""));
-          setRel(d.rel || p || "");
-          setEntries(d.entries || []);
+          const d = await post("/api/workbench/browse", { path: p || "" });
+          setCur(d.path || ""); setParent(d.parent || null);
+          setRoots(d.roots || []); setEntries(d.entries || []);
         } catch (e2) { setErr(e2.message); }
       }, []);
       useEffect(() => { loadDir(""); }, [loadDir]);
 
-      const openFile = async (frel) => {
-        try {
-          await ensureStarted();
-          const d = await get("/api/workbench/proxy/api/file?path=" + encodeURIComponent(frel));
-          setPreview(d);
-        } catch (e2) { setErr(e2.message); }
+      // 用 DSH 原生文件查看器打开（better-sidebar 的 editor tab，支持文本/markdown/图片/PDF 等）
+      const previewFile = (it) => {
+        if (!betterSidebar || typeof betterSidebar.openFile !== "function") { setErr("当前 DSH 环境不提供文件预览（需 dsh-better-sidebar）。"); return; }
+        if (!scope) { setErr("缺少会话作用域，无法打开预览。"); return; }
+        try { betterSidebar.openFile(scope, it.path, it.name); }
+        catch (e2) { setErr("打开预览失败：" + String(e2 && e2.message ? e2.message : e2)); }
       };
-      const openExplorer = async (frel) => {
-        try { await ensureStarted(); await post("/api/workbench/proxy/api/explorer", { path: frel }); } catch (e2) { setErr(e2.message); }
+      const revealInExplorer = async (it) => {
+        try { await post("/api/workbench/proxy/api/explorer", { path: it.path }); }
+        catch (e2) { setErr("资源管理器打开失败（需整合包工作台后端）：" + e2.message); }
+      };
+      const rowStyle = { display: "flex", gap: 8, padding: "5px 8px", cursor: "pointer", borderRadius: 6, alignItems: "center" };
+      const hover = {
+        onMouseEnter: (ev) => { ev.currentTarget.style.background = "rgba(127,127,127,0.1)"; },
+        onMouseLeave: (ev) => { ev.currentTarget.style.background = "transparent"; },
       };
 
       return e("div", { style: S.page },
         e("div", { style: S.nav },
-          e("button", { style: S.btn(false), onClick: () => loadDir(rel.split("/").slice(0, -1).join("/") || "") }, "↑ 上级"),
-          e("button", { style: S.btn(false), onClick: () => loadDir("") }, "工作区根"),
-          e("span", { style: { ...S.muted, alignSelf: "center", marginLeft: 8 } }, rel || "（工作区根）"),
+          e("button", { style: S.btn(false), onClick: () => loadDir("") }, "盘符"),
+          parent ? e("button", { style: S.btn(false), onClick: () => loadDir(parent) }, "↑ 上级") : null,
+          e("span", { style: { ...S.muted, alignSelf: "center", marginLeft: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, cur || "（盘符）"),
         ),
         e("div", { style: S.body },
           err ? e("div", { style: S.err }, err) : null,
-          e("div", { style: { display: "flex", gap: 16 } },
-            e("div", { style: { flex: 1, minWidth: 0 } },
-              (entries || []).map((it) => e("div", {
-                key: it.name,
-                style: { display: "flex", gap: 8, padding: "5px 8px", cursor: "pointer", borderRadius: 6, alignItems: "center" },
-                onMouseEnter: (ev) => { ev.currentTarget.style.background = "rgba(127,127,127,0.1)"; },
-                onMouseLeave: (ev) => { ev.currentTarget.style.background = "transparent"; },
-                onClick: () => it.type === "dir" ? loadDir(it.rel) : openFile(it.rel),
-              },
-                e("span", null, it.type === "dir" ? "📁" : "📄"),
-                e("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, it.name),
-                it.size != null ? e("span", { style: S.muted }, Math.round(it.size / 1024) + " KB") : null,
-                e("button", { style: S.btn(false), onClick: (ev) => { ev.stopPropagation(); openExplorer(it.rel); } }, "打开"),
-              )),
-              (!entries || entries.length === 0) ? e("div", { style: S.muted }, "（空目录）") : null,
-            ),
-            e("div", { style: { flex: 1, minWidth: 0 } },
-              preview ? (preview.previewable
-                ? e("pre", { style: S.mono }, preview.content)
-                : e("div", { style: S.muted }, preview.reason || "不可预览"))
-                : e("div", { style: S.muted }, "点击左侧文件预览内容"),
-            ),
-          ),
+          e("div", { style: { ...S.muted, marginBottom: 6 } }, "点击文件 → 用 DSH 原生查看器预览"),
+          roots.length ? e("div", { style: { marginBottom: 8 } },
+            roots.map((r) => e("div", { key: r, style: { ...rowStyle, fontWeight: 600 }, onClick: () => loadDir(r), ...hover }, "💽 " + r)),
+          ) : null,
+          entries.map((it) => e("div", {
+            key: it.path, style: rowStyle, ...hover,
+            onClick: () => (it.isDir ? loadDir(it.path) : previewFile(it)),
+          },
+            e("span", null, it.isDir ? "📁" : "📄"),
+            e("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, it.name),
+            e("button", { style: S.btn(false), onClick: (ev) => { ev.stopPropagation(); revealInExplorer(it); } }, "打开位置"),
+          )),
+          (!roots.length && entries.length === 0 && !err) ? e("div", { style: S.muted }, "（空目录）") : null,
         ),
       );
     }
@@ -378,6 +375,7 @@ window.__ModuleLoader__.load({
       { id: "env", label: "环境", component: EnvPage },
     ];
     function WorkbenchPanel(props) {
+      const scope = props && props.scope;
       const [page, setPage] = useState("tools");
       const current = PAGES.find((p) => p.id === page);
       return e("div", { style: S.page },
@@ -385,7 +383,7 @@ window.__ModuleLoader__.load({
           PAGES.map((p) => e("button", { key: p.id, onClick: () => setPage(p.id), style: S.btn(page === p.id) }, p.label)),
         ),
         e("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } },
-          e(current.component, {}),
+          e(current.component, { scope }),
         ),
       );
     }
