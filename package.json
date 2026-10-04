@@ -2,7 +2,7 @@
   "name": "dsh-engineering-workbench",
   "version": "1.0.0",
   "type": "module",
-  "description": "水处理与电气自动化整合包的侧边栏工作台按钮插件：DSH 内一键启动 / 停止本地工作台",
+  "description": "水处理与电气自动化整合包的工作台插件：DSH 内嵌工作台 UI（better-sidebar Tab），一键启停本地 Python 工作台",
   "license": "MIT",
   "author": { "name": "moqsting", "url": "https://github.com/moqsting" },
   "repository": {
@@ -21,7 +21,11 @@
     "client": { "platform": "web" }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "~4.0.4"
+    "@deepseek-ai/cordis": "~4.0.4",
+    "dsh-better-sidebar": "~0.24.1"
+  },
+  "peerDependenciesMeta": {
+    "dsh-better-sidebar": { "optional": true }
   },
   "keywords": ["dsh", "dspack", "workbench", "water-treatment", "整合包"],
   "scripts": {
