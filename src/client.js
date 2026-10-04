@@ -247,10 +247,47 @@ window.__ModuleLoader__.load({
     }
 
     /* ---------- 设置页 ---------- */
+    /* ---------- 应用内目录浏览器（自包含，Node fs 后端，跨平台） ---------- */
+    function DirectoryBrowser(props) {
+      const { onSelect, onClose } = props;
+      const [cur, setCur] = useState("");
+      const [parent, setParent] = useState(null);
+      const [entries, setEntries] = useState([]);
+      const [err, setErr] = useState(null);
+      const loadDir = async (p) => {
+        setErr(null);
+        try {
+          const d = await post("/api/workbench/browse", { path: p || "" });
+          setCur(d.path); setParent(d.parent); setEntries(d.entries || []);
+        } catch (e2) { setErr(e2.message); }
+      };
+      useEffect(() => { loadDir(""); }, []);
+      return e("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 } },
+        e("div", { style: { background: "#1e1e1e", borderRadius: 10, padding: 16, width: 480, maxHeight: "70vh", display: "flex", flexDirection: "column", color: "#e5e5e5" } },
+          e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "选择工作区目录"),
+          e("div", { style: { ...S.mono, marginBottom: 8, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, cur),
+          err ? e("div", { style: S.err }, err) : null,
+          e("div", { style: { flex: 1, overflow: "auto", marginBottom: 8, minHeight: 200 } },
+            parent ? e("div", { style: { padding: "5px 8px", cursor: "pointer", borderRadius: 6 }, onClick: () => loadDir(parent) }, "📁 ..") : null,
+            entries.map((it) => e("div", { key: it.path, style: { padding: "5px 8px", cursor: "pointer", borderRadius: 6 },
+              onClick: () => loadDir(it.path), onMouseEnter: (ev) => { ev.currentTarget.style.background = "rgba(127,127,127,0.15)"; },
+              onMouseLeave: (ev) => { ev.currentTarget.style.background = "transparent"; } },
+              "📁 " + it.name)),
+            entries.length === 0 && !err ? e("div", { style: S.muted }, "（空目录）") : null,
+          ),
+          e("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end" } },
+            e("button", { style: S.btn(false), onClick: onClose }, "取消"),
+            e("button", { style: S.primaryBtn, onClick: () => onSelect(cur) }, "选择此目录"),
+          ),
+        ),
+      );
+    }
+
     function SettingsPage() {
       const [ws, setWs] = useState(null);
       const [input, setInput] = useState("");
       const [msg, setMsg] = useState(null);
+      const [browsing, setBrowsing] = useState(false);
       const load = useCallback(async () => {
         try { await ensureStarted(); const d = await get("/api/workbench/proxy/api/workspace"); setWs(d); setInput(d.workspace || ""); } catch (e2) { setMsg(e2.message); }
       }, []);
@@ -259,13 +296,7 @@ window.__ModuleLoader__.load({
         try { await ensureStarted(); const d = await post("/api/workbench/proxy/api/workspace", { path: p }); if (d.ok) { setMsg("已保存：" + d.workspace); setInput(d.workspace); } } catch (e2) { setMsg(e2.message); }
       };
       const save = () => savePath(input);
-      const pick = async () => {
-        try {
-          if (!directoryPicker || typeof directoryPicker.pick !== "function") { setMsg("当前 DSH 环境不提供目录选择器。"); return; }
-          const path = await directoryPicker.pick();
-          if (path) await savePath(path); else setMsg("已取消。");
-        } catch (e2) { setMsg(e2.message); }
-      };
+      const pick = () => setBrowsing(true);
       return e("div", { style: S.page },
         e("div", { style: S.body },
           e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "工作区路径"),
@@ -280,6 +311,10 @@ window.__ModuleLoader__.load({
             e("button", { style: S.btn(false), onClick: pick }, "浏览选择…"),
           ),
           msg ? e("div", { style: { marginTop: 12, ...(msg.startsWith("已") ? S.ok : S.muted) } }, msg) : null,
+          browsing ? e(DirectoryBrowser, {
+            onSelect: (p) => { setBrowsing(false); if (p) { setInput(p); savePath(p); } },
+            onClose: () => setBrowsing(false),
+          }) : null,
         ),
       );
     }
@@ -369,17 +404,8 @@ window.__ModuleLoader__.load({
     }
 
     var betterSidebar = null;
-    var directoryPicker = null;
     const inject = ["slots"];
     function apply(ctx) {
-      // 软依赖访问 DSH 原生目录选择器（不硬声明 remote.directoryPicker，避免该命名空间缺失时插件激活失败）
-      try {
-        ctx.inject(["remote.directoryPicker"], (scoped) => {
-          if (scoped.remote && scoped.remote.directoryPicker) directoryPicker = scoped.remote.directoryPicker;
-        });
-      } catch (e) {
-        directoryPicker = null;
-      }
       ctx.inject(["betterSidebar"], (scoped) => {
         const service = scoped.betterSidebar;
         if (!service || typeof service.registerTab !== "function") return;
