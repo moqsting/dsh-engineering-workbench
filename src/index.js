@@ -6,7 +6,7 @@
 // 路径契约：工作台在 <profileDir>/wta/ui/（整合包 overrides/ 落点），由整合包 manifest 声明。
 import { resolveRuntime } from './runtime.js';
 import { findRunning, startWorkbench, stopWorkbench } from './workbench.js';
-import { readdirSync } from 'node:fs';
+import { readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -156,7 +156,9 @@ export function apply(ctx) {
   );
 
   // 应用内目录浏览（自包含、跨平台，不依赖 server.py / directoryPicker 后端）：
-  // POST /api/workbench/browse {"path": "<绝对路径>"} → 返回该目录的子目录列表 + 父目录。
+  // POST /api/workbench/browse {"path": "<绝对路径>"}
+  //   - 空 path → 返回「盘符/根」列表（Windows 各盘符；类 Unix 为 /），作为自由起点；
+  //   - 有 path → 返回该目录的子目录列表 + 父目录（可一路向上到根）。
   ctx.effect(
     () => ctx.webServer.register({
       kind: 'exact',
@@ -172,10 +174,23 @@ export function apply(ctx) {
         }
         let p = '';
         try { p = (JSON.parse(body.toString('utf8') || '{}').path) || ''; } catch { p = ''; }
-        // 空路径 → 用户主目录；相对路径 → 相对 profile 根
-        let base = p;
-        if (!base) base = runtime.home || os.homedir();
-        else if (!path.isAbsolute(base)) base = path.join(runtime.profileDir || runtime.home, base);
+
+        // 空路径 → 盘符/根列表（不固定从 profile 目录起，用户可自由选择任意位置）
+        if (!p) {
+          const roots = [];
+          if (process.platform === 'win32') {
+            for (let c = 65; c <= 90; c++) {
+              const drive = String.fromCharCode(c) + ':\\';
+              try { if (statSync(drive).isDirectory()) roots.push(drive); } catch { /* 盘符不存在 */ }
+            }
+          } else {
+            roots.push('/');
+          }
+          sendJson(res, 200, { path: '', parent: null, roots, entries: [] });
+          return;
+        }
+
+        const base = path.isAbsolute(p) ? p : path.join(os.homedir(), p);
         try {
           const dirents = readdirSync(base, { withFileTypes: true });
           const entries = dirents
@@ -183,7 +198,7 @@ export function apply(ctx) {
             .map((d) => ({ name: d.name, path: path.join(base, d.name) }))
             .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
           const parent = path.dirname(base);
-          sendJson(res, 200, { path: base, parent: parent !== base ? parent : null, entries });
+          sendJson(res, 200, { path: base, parent: parent !== base ? parent : null, roots: [], entries });
         } catch (err) {
           sendJson(res, 500, { ok: false, error: '无法读取目录：' + String(err.message || err) });
         }
