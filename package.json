@@ -1,8 +1,8 @@
 {
   "name": "dsh-engineering-workbench",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
-  "description": "水处理与电气自动化整合包的工作台插件：DSH 内嵌工作台 UI（better-sidebar Tab），一键启停本地 Python 工作台",
+  "description": "水处理与电气自动化整合包的工作台插件：以 DSH 原生主面板承载工作台界面（文件/设置为核心页，工具/资源/环境为整合包增强页），文件预览走 DSH 原生右侧栏",
   "license": "MIT",
   "author": { "name": "moqsting", "url": "https://github.com/moqsting" },
   "repository": {
@@ -15,7 +15,7 @@
     "./client": "./src/client.js",
     "./cordis.patch.yml": "./cordis.patch.yml"
   },
-  "files": ["src", "cordis.patch.yml"],
+  "files": ["src", "cordis.patch.yml", "CHANGELOG.md"],
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },
     "client": { "platform": "web" }

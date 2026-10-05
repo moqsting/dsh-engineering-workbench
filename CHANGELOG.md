@@ -1,0 +1,43 @@
+# 更新日志
+
+本文件记录 dsh-engineering-workbench 的所有重要变更。
+格式参考 Keep a Changelog，版本号遵循语义化版本。
+
+## 1.1.0
+
+### 变更（Changed）
+
+- 工作台 UI 容器由第三方 better-sidebar Tab 改为 DSH 原生主面板：以 `main` slot（`key` 为面板 id）承载面板本体，以 `sidebar.panellist` slot 注册侧栏入口，与官方「插件」面板同机制、同渲染路径。
+  - 原因：原方案依赖第三方插件的 Tab 容器，工作台不再是 DSH 的一等界面，且受其版本约束。
+  - 验证：`0.2.0-rc.2_test` profile 中点击侧栏「工作台」可切换到主面板，文件/设置页可用。
+- 侧栏「工作台」图标移至顶部，与官方「插件」按钮并排、同字号；再次点击同一图标可折叠回对话（`activePanelId` 置空）。
+  - 验证：手动点击两次，确认面板展开与收回。
+- 界面文案「工作区」全量改称「文件区」（含前端页面、host 路由注释、目录选择对话框标题）。
+  - 原因：与 DSH 自身的会话工作区概念重名，易混淆。
+  - 验证：静态检索插件两个源文件，「工作区」出现次数为 0。
+
+### 修复（Fixed）
+
+- 文件页点击文件预览报「当前没有活动的会话」或「no session surface is mounted」。
+  - 原因一：会话 id 原先取自 `sidebarRight.mounted`，而该值仅在「对话占满主栏」时为非空，工作台面板激活时必为 `undefined`。改为优先取自 `uiSession.adapter.current`（跟踪主视图持有的会话，与主栏显示哪个面板无关），`mounted` 仅作兜底。
+  - 原因二：`sidebarRight.openResource()` 内部 `require()` 仍会读取 `mounted`，工作台面板激活时抛错。故在检测到工作台面板激活时，先 `selectPanel(null)` 切回对话让右侧栏挂载，再打开预览。
+  - 验证：`0.2.0-rc.2_test` 中从文件页点击文件，可自动切回对话并在右侧栏打开原生预览。
+- 文件页导航栏在文件区根目录时重复显示「文件区根」与「（文件区根）」。
+  - 原因：左侧按钮文案与右侧面包屑兜底文案重复。
+  - 修复：仅在有相对路径时显示面包屑。
+  - 验证：根目录下导航栏只显示「文件区根」按钮。
+
+### 移除（Removed）
+
+- 移除文件行上的「打开位置」按钮、前端 `revealInExplorer`/`parentDirOf`，以及 host 端 `/api/workbench/reveal` 路由与 `revealInFileManager`/`describeSpawnError`/`describeExitCode`。
+  - 原因：该功能通过 `explorer.exe` 调起系统文件管理器，在无交互式桌面会话的环境下无法弹窗（进程可创建但窗口无法显示，退出码不可靠），且 DSH 原生预览面板已能承担文件定位职责。
+  - 验证：静态检索确认前端与 host 均无残留；文件页不再渲染该按钮。
+
+### 说明（Notes）
+
+- 不再运行时依赖 `dsh-better-sidebar`，其 peer 依赖保持 optional。
+- 工具/资源/环境三个增强页仅在检测到 `<profileDir>/wta` 后端时显示；文件/设置为核心页，任何环境可用。
+
+## 1.0.0
+
+- 首个正式版本：在 DSH 中以内嵌方式提供工作台入口，包装整合包自带的 Python 工作台服务，支持启动/停止与状态显示。
