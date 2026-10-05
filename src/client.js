@@ -463,28 +463,119 @@ window.__ModuleLoader__.load({
     }
 
     /* ---------- 环境页 ---------- */
+    /* ---------- 环境页 ---------- */
+    // 三态自检卡片。判据必须是显式三态：CAD 一项曾用「dwg_to_dxf !== "unknown"」当可用判据，
+    // 而该字段是字符串，"none"（完全没装）也是非空字符串 → 恒为真 → 未安装 CAD 也打勾。
+    const ENV_TONES = {
+      ok: { fg: "#22c55e", bg: "rgba(34,197,94,0.12)", border: "rgba(34,197,94,0.40)", text: "正常" },
+      warn: { fg: "#f59e0b", bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.40)", text: "部分可用" },
+      bad: { fg: "#ef4444", bg: "rgba(239,68,68,0.12)", border: "rgba(239,68,68,0.40)", text: "不可用" },
+    };
+    const ENV_CARD = {
+      flex: "1 1 240px", minWidth: 220, display: "flex", flexDirection: "column", gap: 6,
+      border: "1px solid rgba(127,127,127,0.22)", borderRadius: 10, padding: "12px 14px",
+      background: "rgba(127,127,127,0.04)",
+    };
+    const CAD_MODE_DESC = {
+      autocad: "AutoCAD 核心控制台（accoreconsole.exe）可批量转换 DWG→DXF",
+      oda: "ODA File Converter 可批量转换 DWG→DXF",
+      "autocad-acad": "仅检测到 acad.exe（缺核心控制台），需用 AutoCAD 手动另存为 DXF",
+      none: "未检测到 AutoCAD 或 ODA File Converter，DWG 图纸无法自动转换",
+      unknown: "未执行探测（探测脚本未返回结果）",
+    };
+
     function EnvPage() {
       const [data, setData] = useState(null);
       const [err, setErr] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const [at, setAt] = useState("");
+
       const load = useCallback(async () => {
-        try { await ensureStarted(); setData(await get("/api/workbench/proxy/api/env?refresh=1")); } catch (e2) { setErr(e2.message); }
+        setBusy(true); setErr(null);
+        try {
+          await ensureStarted();
+          setData(await get("/api/workbench/proxy/api/env?refresh=1"));
+          setAt(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
+        } catch (e2) { setErr(e2.message); }
+        finally { setBusy(false); }
       }, []);
       useEffect(() => { load(); }, [load]);
-      const row = (label, ok, detail) => e("div", { style: { padding: "5px 0" } },
-        e("span", null, (ok ? "✅" : "⚠️") + " " + label + "："),
-        e("span", { style: S.mono }, " " + (detail || (ok ? "正常" : "异常"))));
+
+      const pill = (tone) => {
+        const t = ENV_TONES[tone] || ENV_TONES.warn;
+        return e("span", {
+          style: {
+            fontSize: 11, padding: "2px 8px", borderRadius: 999, whiteSpace: "nowrap",
+            color: t.fg, background: t.bg, border: "1px solid " + t.border,
+          },
+        }, t.text);
+      };
+      const card = (key, icon, title, tone, value, desc) => e("div", { key, style: ENV_CARD },
+        e("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+          e("span", { style: { fontSize: 15 } }, icon),
+          e("span", { style: { flex: 1, fontWeight: 600 } }, title),
+          pill(tone)),
+        value ? e("div", { style: { fontSize: 16, fontWeight: 600, fontFamily: "ui-monospace, Consolas, monospace" } }, value) : null,
+        desc ? e("div", { style: { ...S.muted, lineHeight: 1.55 } }, desc) : null);
+
+      const cad = (data && data.cad) || {};
+      const mode = cad.dwg_to_dxf || "unknown";
+      const cadTone = (mode === "autocad" || mode === "oda") ? "ok" : (mode === "none" ? "bad" : "warn");
+      const hints = (cad.hints || []).slice(0, 4);
+      const found = [];
+      if (cad.has_autocad) found.push("AutoCAD" + (cad.autocad_version ? " " + cad.autocad_version : "") + (cad.core_console ? "（含核心控制台）" : ""));
+      if (cad.has_oda) found.push("ODA File Converter");
+
       return e("div", { style: S.page },
         e("div", { style: S.body },
-          e("div", { style: { marginBottom: 8 } }, e("button", { style: S.btn(false), onClick: load }, "刷新")),
-          err ? e("div", { style: S.err }, err) : null,
-          data ? e("div", null,
-            row("Python", data.python && data.python.ok, data.python && data.python.version),
-            row("离线依赖 pydeps", data.pydeps && data.pydeps.ok, data.pydeps && data.pydeps.detail),
-            row("CAD 转换", (data.cad && data.cad.dwg_to_dxf !== "unknown") ? data.cad.dwg_to_dxf : false,
-              data.cad ? ("AutoCAD:" + data.cad.has_autocad + " ODA:" + data.cad.has_oda) : ""),
-            row("技能", data.skills > 0, data.skills + " 个"),
-            row("招标日报", data.tender_reports >= 0, data.tender_reports + " 份"),
-          ) : e("div", { style: S.muted }, "加载中…"),
+          e("div", { style: { display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14 } },
+            e("div", { style: { fontSize: 16, fontWeight: 600 } }, "环境自检"),
+            e("div", { style: { ...S.muted, flex: 1 } }, at ? ("上次检测 " + at) : "本机 Python、离线依赖与 CAD 图纸转换能力"),
+            e("button", {
+              style: { ...S.primaryBtn, opacity: busy ? 0.6 : 1 },
+              disabled: busy, onClick: load,
+            }, busy ? "检测中…" : "重新检测")),
+          err ? e("div", { style: { ...S.err, marginBottom: 10 } }, err) : null,
+          !data
+            ? e("div", { style: S.muted }, busy ? "正在检测…" : "暂无数据")
+            : e("div", null,
+              e("div", { style: { display: "flex", flexWrap: "wrap", gap: 12 } },
+                card("python", "🐍", "Python 运行时",
+                  data.python && data.python.ok ? "ok" : "bad",
+                  (data.python && data.python.version) || "",
+                  data.python && data.python.ok ? "解释器可用，包内工具脚本可执行" : "未找到可用解释器，工具页无法运行"),
+                card("pydeps", "📦", "离线依赖",
+                  data.pydeps && data.pydeps.ok ? "ok" : "bad",
+                  data.pydeps && data.pydeps.ok ? "已就绪" : "缺失",
+                  data.pydeps && data.pydeps.ok
+                    ? "openpyxl / pandas / ezdxf 均可导入"
+                    : ((data.pydeps && data.pydeps.detail) || "依赖导入失败")),
+                card("skills", "🧩", "对话技能",
+                  data.skills > 0 ? "ok" : "warn",
+                  (data.skills || 0) + " 个",
+                  data.skills > 0 ? "已注册到 DSH 技能目录" : "未发现技能，请检查 $DSH_HOME/skills"),
+                card("tender", "📄", "招标日报",
+                  data.tender_reports > 0 ? "ok" : "warn",
+                  (data.tender_reports || 0) + " 份",
+                  data.tender_reports > 0 ? "reports/tender 下已有日报" : "尚未生成日报，可在工具页运行")),
+              e("div", { style: { ...ENV_CARD, flex: "1 1 100%", marginTop: 12 } },
+                e("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                  e("span", { style: { fontSize: 15 } }, "📐"),
+                  e("span", { style: { flex: 1, fontWeight: 600 } }, "CAD 图纸转换"),
+                  pill(cadTone)),
+                e("div", { style: { fontSize: 13, fontWeight: 600 } }, CAD_MODE_DESC[mode] || mode),
+                e("div", { style: S.muted },
+                  "AutoCAD：" + (cad.has_autocad ? (cad.autocad_dir || "已检测到") : "未找到")
+                  + "　|　ODA：" + (cad.has_oda ? (cad.oda_dir || "已检测到") : "未找到")),
+                found.length ? e("div", { style: { ...S.muted, color: "#22c55e" } }, "已就绪：" + found.join("、")) : null,
+                hints.length
+                  ? e("div", { style: { marginTop: 2, display: "flex", flexDirection: "column", gap: 4 } },
+                    hints.map((h, i) => e("div", {
+                      key: "hint" + i,
+                      style: { fontSize: 12, lineHeight: 1.6, display: "flex", gap: 6 },
+                    }, e("span", null, "💡"), e("span", { style: { flex: 1 } }, h))))
+                  : null),
+            ),
         ),
       );
     }

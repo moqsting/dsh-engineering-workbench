@@ -1,6 +1,6 @@
 {
   "name": "dsh-engineering-workbench",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "type": "module",
   "description": "水处理与电气自动化整合包的工作台插件：以 DSH 原生主面板承载工作台界面（文件/设置为核心页，工具/资源/环境为整合包增强页），文件预览走 DSH 原生右侧栏",
   "license": "MIT",

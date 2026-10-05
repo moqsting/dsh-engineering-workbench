@@ -3,6 +3,22 @@
 本文件记录 dsh-engineering-workbench 的所有重要变更。
 格式参考 Keep a Changelog，版本号遵循语义化版本。
 
+## 1.1.2
+
+### 修复（Fixed）
+
+- 环境页在**未安装 CAD** 的情况下，CAD 一项仍显示为正常（打勾）。
+  - 原因：可用判据写成 `cad.dwg_to_dxf !== "unknown"`，而该字段的值是字符串（`none` / `autocad` / `autocad-acad` / `oda`）；`"none"` 是非空字符串、恒为真值，于是"完全没装"也被判成正常。
+  - 修复：改为显式三态判定——`autocad` / `oda` 为正常，`autocad-acad` 为部分可用（仅有 acad.exe、缺核心控制台），`none` 为不可用，`unknown` 为未检测。
+  - 验证：整合包测试套件新增断言，锁死 `dwg_to_dxf` 的取值域与 `has_autocad` / `has_oda` / `core_console` 的布尔类型，并校验"声明可转换"与"实际检测到程序"必须一致；46/46 通过。
+
+### 变更（Changed）
+
+- 环境页整页重写为**三态自检卡片**：状态用色块标签表达（正常 / 部分可用 / 不可用），每张卡给出关键值（Python 版本、依赖就绪状态、技能数、日报数）；CAD 一项单列整宽卡片，显示实际检测到的程序与目录、能力说明，并在不可用时列出后端给出的可操作建议；右上角「重新检测」带检测中状态，并显示上次检测时间。
+  - 原因：原页面把后端字段逐行拼成 `标签：✅/⚠️ 值` 的纯文本，既看不出严重程度，也没有下一步指引；CAD 能力缺失时尤其无从下手。
+  - 说明：页面展示 `cad` 段的 `autocad_version` / `autocad_dir` / `core_console` / `oda_dir` / `hints` 字段（由整合包 `ui/server.py` 的 `/api/env` 提供）；字段缺失时页面自动降级显示，不报错。
+  - 验证：`node --check src/client.js` 通过；插件单测 5/5 通过。
+
 ## 1.1.1
 
 ### 修复（Fixed）
