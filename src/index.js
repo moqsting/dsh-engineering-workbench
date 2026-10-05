@@ -341,8 +341,9 @@ export function apply(ctx) {
   );
 
   // 调起系统文件管理器定位目标。返回 { ok } 或 { ok:false, error }。
-  // Windows 用 explorer：目录直接打开；文件用 /select,<path>——逗号必须紧跟路径，
-  // 故两者拼成单个参数传入（分成两个参数时 explorer 无法定位）。
+  // Windows 用 explorer：目录直接打开；文件用 /select, <path>——与整合包 Python 后端
+  // subprocess.Popen(["explorer", "/select,", str(target)]) 完全一致：/select, 与路径是
+  // 两个参数（带空格路径会由 spawn 单独加引号，explorer 才能正确解析）。
   // explorer 成功时也可能以非 0 退出，因此只有明确的启动/初始化失败才算失败。
   const revealInFileManager = (target) => new Promise((resolve) => {
     let isDir = false;
@@ -350,7 +351,7 @@ export function apply(ctx) {
     const dir = isDir ? target : path.dirname(target);
     let cmd;
     let args;
-    if (process.platform === 'win32') { cmd = 'explorer.exe'; args = isDir ? [target] : ['/select,' + target]; }
+    if (process.platform === 'win32') { cmd = 'explorer.exe'; args = isDir ? [target] : ['/select,', target]; }
     else if (process.platform === 'darwin') { cmd = 'open'; args = [dir]; }
     else { cmd = 'xdg-open'; args = [dir]; }
 
