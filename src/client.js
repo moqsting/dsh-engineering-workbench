@@ -5,9 +5,9 @@
  *   - 侧栏顶部图标「工作台」与官方「插件」并列（同一 sidebar.panellist slot）；
  *   - 主区域面板含 文件 / 设置（核心页，独立可用），
  *     以及 工具 / 资源 / 环境（整合包增强页，检测到 <profile>/wta 后端才显示）；
- *   - 文件页从工作区目录开始浏览；点击文件调用 DSH 原生右侧栏文档预览。
+ *   - 文件页从文件区目录开始浏览；点击文件调用 DSH 原生右侧栏文档预览。
  *
- * 核心能力（工作区路径、目录浏览、文件预览）由 host 路由与 DSH 本体直接提供，不依赖整合包；
+ * 核心能力（文件区路径、目录浏览、文件预览）由 host 路由与 DSH 本体直接提供，不依赖整合包；
  * 整合包相关的工具/资源/环境接口走 host 的 /api/workbench/proxy/* 反向代理（同源，避免 CORS）。
  */
 window.__ModuleLoader__.load({
@@ -164,7 +164,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /* ---------- 文件页（从工作区目录开始；预览走 DSH 原生查看器） ---------- */
+    /* ---------- 文件页（从文件区目录开始；预览走 DSH 原生查看器） ---------- */
     function FilesPage() {
       const [workspace, setWorkspace] = useState(null); // null=加载中；""=未设置
       const [cur, setCur] = useState("");
@@ -214,8 +214,8 @@ window.__ModuleLoader__.load({
       }
       if (!workspace) {
         return e("div", { style: S.page }, e("div", { style: S.body },
-          e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "尚未设置工作区"),
-          e("div", { style: S.muted }, "请到「设置」页选择工作区目录；设置后这里会显示工作区内的文件与目录。")));
+          e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "尚未设置文件区"),
+          e("div", { style: S.muted }, "请到「设置」页选择文件区目录；设置后这里会显示文件区内的文件与目录。")));
       }
       const atRoot = cur && cur.toLowerCase() === workspace.toLowerCase();
       const relShown = cur && cur.length > workspace.length
@@ -224,9 +224,9 @@ window.__ModuleLoader__.load({
       return e("div", { style: S.page },
         e("div", { style: S.nav },
           (!atRoot && parent) ? e("button", { style: S.btn(false), onClick: () => loadDir(parent) }, "↑ 上级") : null,
-          e("button", { style: S.btn(false), onClick: () => loadDir(workspace) }, "工作区根"),
+          e("button", { style: S.btn(false), onClick: () => loadDir(workspace) }, "文件区根"),
           e("span", { style: { ...S.muted, alignSelf: "center", marginLeft: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
-            relShown || "（工作区根）"),
+            relShown || "（文件区根）"),
         ),
         e("div", { style: S.body },
           err ? e("div", { style: S.err }, err) : null,
@@ -256,7 +256,7 @@ window.__ModuleLoader__.load({
           data ? e("div", null,
             e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "快捷目录"),
             (data.quickDirs || []).map((q) => e("div", { key: q.rel || "root", style: { padding: "4px 0" } },
-              e("span", { style: S.mono }, q.rel || "（工作区）"), " — ", q.name, e("span", { style: S.muted }, "  " + (q.note || "")))),
+              e("span", { style: S.mono }, q.rel || "（文件区）"), " — ", q.name, e("span", { style: S.muted }, "  " + (q.note || "")))),
             (data.groups || []).map((g) => e("div", { key: g.title, style: { marginTop: 16 } },
               e("div", { style: { fontWeight: 600, marginBottom: 4 } }, g.title),
               g.items.map((it) => e("div", { key: it.rel, style: { padding: "3px 0" } },
@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
       };
       return e("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 } },
         e("div", { style: { background: "#1e1e1e", borderRadius: 10, padding: 16, width: 520, maxHeight: "74vh", display: "flex", flexDirection: "column", color: "#e5e5e5" } },
-          e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "选择工作区目录"),
+          e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "选择文件区目录"),
           e("div", { style: { ...S.mono, marginBottom: 8, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, cur || "（选择盘符开始）"),
           err ? e("div", { style: S.err }, err) : null,
           e("div", { style: { flex: 1, overflow: "auto", marginBottom: 8, minHeight: 220 } },
@@ -343,9 +343,9 @@ window.__ModuleLoader__.load({
       };
       return e("div", { style: S.page },
         e("div", { style: S.body },
-          e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "工作区路径"),
-          e("div", { style: { ...S.muted, marginBottom: 8 } }, "工作区是你放置图纸/报价表的目录，所有工具的相对路径都相对它解析。"),
-          ws ? e("div", { style: { ...S.mono, marginBottom: 12 } }, ws.workspace || "（未设置，默认工作区根）") : null,
+          e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "文件区路径"),
+          e("div", { style: { ...S.muted, marginBottom: 8 } }, "文件区是你放置图纸/报价表的目录，所有工具的相对路径都相对它解析。"),
+          ws ? e("div", { style: { ...S.mono, marginBottom: 12 } }, ws.workspace || "（未设置，默认文件区根）") : null,
           e("div", { style: S.field },
             e("label", { style: S.label }, "新路径（绝对路径）"),
             e("input", { style: S.input, value: input, onChange: (ev) => setInput(ev.target.value) }),

@@ -75,7 +75,7 @@ const PICKDIR_PS = [
   "    public static string Pick() {",
   "        var dlg = (IFileOpenDialog)new FileOpenDialogRCW();",
   "        dlg.SetOptions(0x20 | 0x40);",
-  '        dlg.SetTitle("选择工作区目录");',
+  '        dlg.SetTitle("选择文件区目录");',
   "        int hr = dlg.Show(GetForegroundWindow());",
   "        if (hr != 0) return null;",
   "        IShellItem item;",
@@ -292,7 +292,7 @@ export function apply(ctx) {
     'dsh-engineering-workbench: POST /api/workbench/browse',
   );
 
-  // 工作区路径（插件自管，不依赖整合包 server.py）：
+  // 文件区路径（插件自管，不依赖整合包 server.py）：
   // 配置存 <profileDir>/wta/config/ui-workspace.json —— 与 server.py 同路径，
   // 有整合包时两边共享同一份配置；纯插件环境则由本插件自行创建/维护。
   const workspaceConfigPath = () =>
