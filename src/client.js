@@ -186,6 +186,42 @@ window.__ModuleLoader__.load({
       return void 0;
     }
 
+    /* ---------- 列表行与原生预览（文件页 / 资源页共用，保证两页观感与行为一致） ---------- */
+    const ROW_STYLE = { display: "flex", gap: 8, padding: "5px 8px", cursor: "pointer", borderRadius: 6, alignItems: "center" };
+    const ROW_HOVER = {
+      onMouseEnter: (ev) => { ev.currentTarget.style.background = "rgba(127,127,127,0.1)"; },
+      onMouseLeave: (ev) => { ev.currentTarget.style.background = "transparent"; },
+    };
+
+    // 用 DSH 原生文件查看器打开（右侧栏 documentPreview：文本/markdown/图片/PDF/Excel/Office）
+    // 失败经 onError(msg) 回调返回——可能同步，也可能在切回对话后异步触发。
+    function openNativePreview(filePath, onError) {
+      const fail = (m) => { if (typeof onError === "function") onError(m); };
+      if (!sidebarRight || typeof sidebarRight.openResource !== "function") {
+        fail("当前 DSH 环境不提供原生文件预览。"); return;
+      }
+      const sessionId = currentSessionId();
+      if (!sessionId) {
+        fail("当前没有活动会话，无法使用原生预览；请先在对话中打开或新建一个会话。"); return;
+      }
+      const address = sessionFileAddress(sessionId, filePath);
+      const open = () => {
+        try { sidebarRight.openResource(address); }
+        catch (e2) { fail("打开预览失败：" + String(e2 && e2.message ? e2.message : e2)); }
+      };
+      // 原生预览在右侧栏，属于“对话视图”。openResource 内部 require() 依赖 onScreen（mounted）
+      // 非空，而 onScreen 只在主栏显示对话（activePanelId === null）时才有值。
+      // 因此若当前正显示工作台面板，先切回对话让右侧栏挂载，再打开预览。
+      let active = null;
+      try { active = layoutService && layoutService.panelInfo ? layoutService.panelInfo.getSnapshot().activePanelId : null; } catch { active = null; }
+      if (active === PANEL_ID) {
+        try { if (layoutService && typeof layoutService.selectPanel === "function") layoutService.selectPanel(null); } catch { /* 切回失败则直接尝试 */ }
+        setTimeout(open, 0);
+        return;
+      }
+      open();
+    }
+
     function FilesPage() {
       const [workspace, setWorkspace] = useState(null); // null=加载中；""=未设置
       const [cur, setCur] = useState("");
@@ -211,37 +247,7 @@ window.__ModuleLoader__.load({
         })();
       }, [loadDir]);
 
-      // 用 DSH 原生文件查看器打开（右侧栏 documentPreview：文本/markdown/图片/PDF/Excel/Office）
-      const previewFile = (it) => {
-        if (!sidebarRight || typeof sidebarRight.openResource !== "function") { setErr("当前 DSH 环境不提供原生文件预览。"); return; }
-        const sessionId = currentSessionId();
-        if (!sessionId) {
-          setErr("当前没有活动会话，无法使用原生预览；请先在对话中打开或新建一个会话。");
-          return;
-        }
-        const address = sessionFileAddress(sessionId, it.path);
-        const open = () => {
-          try { sidebarRight.openResource(address); setErr(null); }
-          catch (e2) { setErr("打开预览失败：" + String(e2 && e2.message ? e2.message : e2)); }
-        };
-        // 原生预览在右侧栏，属于“对话视图”。openResource 内部 require() 依赖 onScreen（mounted）
-        // 非空，而 onScreen 只在主栏显示对话（activePanelId === null）时才有值。
-        // 因此若当前正显示工作台面板，先切回对话让右侧栏挂载，再打开预览。
-        let active = null;
-        try { active = layoutService && layoutService.panelInfo ? layoutService.panelInfo.getSnapshot().activePanelId : null; } catch { active = null; }
-        if (active === PANEL_ID) {
-          try { if (layoutService && typeof layoutService.selectPanel === "function") layoutService.selectPanel(null); } catch { /* 切回失败则直接尝试 */ }
-          setTimeout(open, 0);
-          return;
-        }
-        open();
-      };
-
-      const rowStyle = { display: "flex", gap: 8, padding: "5px 8px", cursor: "pointer", borderRadius: 6, alignItems: "center" };
-      const hover = {
-        onMouseEnter: (ev) => { ev.currentTarget.style.background = "rgba(127,127,127,0.1)"; },
-        onMouseLeave: (ev) => { ev.currentTarget.style.background = "transparent"; },
-      };
+      const previewFile = (it) => { setErr(null); openNativePreview(it.path, setErr); };
 
       if (workspace === null) {
         return e("div", { style: S.page }, e("div", { style: S.body }, e("div", { style: S.muted }, "加载中…")));
@@ -264,7 +270,7 @@ window.__ModuleLoader__.load({
         e("div", { style: S.body },
           err ? e("div", { style: S.err }, err) : null,
           entries.map((it) => e("div", {
-            key: it.path, style: rowStyle, ...hover,
+            key: it.path, style: ROW_STYLE, ...ROW_HOVER,
             onClick: () => (it.isDir ? loadDir(it.path) : previewFile(it)),
           },
             e("span", null, it.isDir ? "📁" : "📄"),
@@ -276,24 +282,85 @@ window.__ModuleLoader__.load({
     }
 
     /* ---------- 资源页 ---------- */
+    /* 随包资源：快捷目录 + 分类清单。行样式与文件页一致（图标 + 名称 + 悬停），
+       目录可点进浏览、文件可点开 DSH 原生预览。
+       两种标识的分工：abs（绝对路径）用于浏览与原生预览，rel（@pack/...）仅作列表键。 */
     function ResourcesPage() {
       const [data, setData] = useState(null);
       const [err, setErr] = useState(null);
+      const [cur, setCur] = useState(null);        // null=快捷总览；否则为正在浏览的目录绝对路径
+      const [listing, setListing] = useState(null);
+      const [busy, setBusy] = useState(false);
+
       useEffect(() => {
-        (async () => { try { await ensureStarted(); setData(await get("/api/workbench/proxy/api/resources")); } catch (e2) { setErr(e2.message); } })();
+        (async () => {
+          try { await ensureStarted(); setData(await get("/api/workbench/proxy/api/resources")); }
+          catch (e2) { setErr(e2.message); }
+        })();
       }, []);
+
+      const openDir = useCallback(async (abs) => {
+        setErr(null); setBusy(true);
+        try {
+          const d = await get("/api/workbench/proxy/api/dirs?path=" + encodeURIComponent(abs == null ? "" : abs));
+          if (!d.exists) { setErr("目录不存在：" + (abs || "文件区")); return; }
+          setListing(d); setCur(abs == null ? "" : abs);
+        } catch (e2) { setErr("无法打开目录：" + e2.message); }
+        finally { setBusy(false); }
+      }, []);
+
+      const preview = (abs, fallback) => { setErr(null); openNativePreview(abs || fallback, setErr); };
+
+      const row = (key, icon, label, note, onClick) => e("div", {
+        key, style: ROW_STYLE, ...ROW_HOVER, onClick,
+      },
+        e("span", null, icon),
+        e("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, label),
+        note ? e("span", { style: { ...S.muted, flex: "0 0 auto" } }, note) : null);
+
+      const fmtSize = (n) => (typeof n === "number" ? (n < 1024 ? n + " B" : (n / 1024).toFixed(1) + " KB") : "");
+      const parentOf = (p) => {
+        const s = String(p || "").replace(/[\\/]+$/, "");
+        if (!s) return null;
+        const i = Math.max(s.lastIndexOf("/"), s.lastIndexOf("\\"));
+        if (i <= 1) return null;
+        const par = s.slice(0, i);
+        return /^[a-zA-Z]:$/.test(par) ? par + "/" : par;
+      };
+
+      if (cur !== null) {
+        const items = (listing && listing.entries) || [];
+        const up = parentOf(cur);
+        return e("div", { style: S.page },
+          e("div", { style: S.nav },
+            up ? e("button", { style: S.btn(false), onClick: () => openDir(up) }, "↑ 上级") : null,
+            e("button", { style: S.btn(false), onClick: () => openDir(cur) }, "刷新"),
+            e("button", { style: S.btn(false), onClick: () => { setCur(null); setListing(null); setErr(null); } }, "← 快捷目录"),
+            e("span", { style: { ...S.muted, alignSelf: "center", marginLeft: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+              cur || "文件区"),
+          ),
+          e("div", { style: S.body },
+            err ? e("div", { style: S.err }, err) : null,
+            busy ? e("div", { style: S.muted }, "加载中…") : null,
+            items.map((it) => (it.type === "dir"
+              ? row(it.rel, "📁", it.name, "", () => openDir(it.abs || it.rel))
+              : row(it.rel, "📄", it.name, fmtSize(it.size), () => preview(it.abs, it.rel)))),
+            !busy && items.length === 0 && !err ? e("div", { style: S.muted }, "（空目录）") : null,
+          ),
+        );
+      }
+
       return e("div", { style: S.page },
         e("div", { style: S.body },
           err ? e("div", { style: S.err }, err) : null,
           data ? e("div", null,
-            e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "快捷目录"),
-            (data.quickDirs || []).map((q) => e("div", { key: q.rel || "root", style: { padding: "4px 0" } },
-              e("span", { style: S.mono }, q.rel || "（文件区）"), " — ", q.name, e("span", { style: S.muted }, "  " + (q.note || "")))),
-            (data.groups || []).map((g) => e("div", { key: g.title, style: { marginTop: 16 } },
+            e("div", { style: { fontWeight: 600, marginBottom: 4 } }, "快捷目录"),
+            (data.quickDirs || []).map((q) => row("q:" + (q.rel || "root"), q.rel ? "📁" : "🗂",
+              q.rel ? q.name : q.name + "（文件区）", q.note || "", () => openDir(q.abs))),
+            (data.groups || []).map((g) => e("div", { key: g.title, style: { marginTop: 14 } },
               e("div", { style: { fontWeight: 600, marginBottom: 4 } }, g.title),
-              g.items.map((it) => e("div", { key: it.rel, style: { padding: "3px 0" } },
-                e("span", { style: S.mono }, it.rel), " — ", it.name, e("span", { style: S.muted }, "  " + (it.note || "")))),
-            )),
+              g.items.map((it) => row("i:" + it.rel, "📄", it.name, it.note || "", () => preview(it.abs, it.rel)))),
+            ),
           ) : e("div", { style: S.muted }, "加载中…"),
         ),
       );
