@@ -166,13 +166,6 @@ window.__ModuleLoader__.load({
 
     /* ---------- 文件页（从文件区目录开始；预览走 DSH 原生查看器） ---------- */
 
-    // 上级目录（纯字符串运算，不依赖 path 模块）
-    function parentDirOf(p) {
-      const s = String(p).replace(/[\\/]+$/, "");
-      const i = Math.max(s.lastIndexOf("\\"), s.lastIndexOf("/"));
-      return i > 0 ? s.slice(0, i) : s;
-    }
-
     // 当前会话 id。两条来源，按可靠性排序：
     //   1) uiSession.adapter.current —— 主视图持有的会话，与主栏显示哪个面板无关
     //      （切到工作台面板不会清空 mainReference，故始终有效）；
@@ -199,7 +192,6 @@ window.__ModuleLoader__.load({
       const [parent, setParent] = useState(null);
       const [entries, setEntries] = useState([]);
       const [err, setErr] = useState(null);
-      const [notice, setNotice] = useState(null);
 
       const loadDir = useCallback(async (p) => {
         setErr(null);
@@ -229,7 +221,7 @@ window.__ModuleLoader__.load({
         }
         const address = sessionFileAddress(sessionId, it.path);
         const open = () => {
-          try { sidebarRight.openResource(address); setErr(null); setNotice(null); }
+          try { sidebarRight.openResource(address); setErr(null); }
           catch (e2) { setErr("打开预览失败：" + String(e2 && e2.message ? e2.message : e2)); }
         };
         // 原生预览在右侧栏，属于“对话视图”。openResource 内部 require() 依赖 onScreen（mounted）
@@ -245,26 +237,6 @@ window.__ModuleLoader__.load({
         open();
       };
 
-      // 定位文件所在目录：主行为是工作台内跳转（任何环境都确定可见、可靠）；
-      // 系统资源管理器作为“尽力而为”的增强——无桌面/服务会话下无法弹窗，
-      // 但不会影响上面的定位结果。
-      const revealInExplorer = async (it) => {
-        const targetDir = it.isDir ? it.path : parentDirOf(it.path);
-        try {
-          await loadDir(targetDir);
-        } catch (e2) {
-          setErr("无法定位到该目录：" + e2.message);
-          return;
-        }
-        const base = it.isDir ? "已定位到目录：" : "已定位到文件所在目录：";
-        try {
-          const r = await post("/api/workbench/reveal", { path: it.path });
-          if (r && r.ok) setNotice(base + targetDir + "（已请求系统资源管理器打开）");
-          else setNotice(base + targetDir + "（系统资源管理器不可用：" + ((r && r.error) || "未知原因") + "）");
-        } catch (e2) {
-          setNotice(base + targetDir + "（系统资源管理器不可用：" + e2.message + "）");
-        }
-      };
       const rowStyle = { display: "flex", gap: 8, padding: "5px 8px", cursor: "pointer", borderRadius: 6, alignItems: "center" };
       const hover = {
         onMouseEnter: (ev) => { ev.currentTarget.style.background = "rgba(127,127,127,0.1)"; },
@@ -287,19 +259,16 @@ window.__ModuleLoader__.load({
         e("div", { style: S.nav },
           (!atRoot && parent) ? e("button", { style: S.btn(false), onClick: () => loadDir(parent) }, "↑ 上级") : null,
           e("button", { style: S.btn(false), onClick: () => loadDir(workspace) }, "文件区根"),
-          e("span", { style: { ...S.muted, alignSelf: "center", marginLeft: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
-            relShown || "（文件区根）"),
+          relShown ? e("span", { style: { ...S.muted, alignSelf: "center", marginLeft: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, relShown) : null,
         ),
         e("div", { style: S.body },
           err ? e("div", { style: S.err }, err) : null,
-          notice ? e("div", { style: { ...S.muted, marginBottom: 8 } }, notice) : null,
           entries.map((it) => e("div", {
             key: it.path, style: rowStyle, ...hover,
             onClick: () => (it.isDir ? loadDir(it.path) : previewFile(it)),
           },
             e("span", null, it.isDir ? "📁" : "📄"),
             e("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, it.name),
-            e("button", { style: S.btn(false), onClick: (ev) => { ev.stopPropagation(); revealInExplorer(it); } }, "打开位置"),
           )),
           entries.length === 0 && !err ? e("div", { style: S.muted }, "（空目录）") : null,
         ),
