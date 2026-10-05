@@ -340,7 +340,52 @@ export function apply(ctx) {
     'dsh-engineering-workbench: /api/workbench/workspace',
   );
 
+  // 调起系统文件管理器定位目标。返回 { ok } 或 { ok:false, error }。
+  // Windows 用 explorer：目录直接打开；文件用 /select,<path>——逗号必须紧跟路径，
+  // 故两者拼成单个参数传入（分成两个参数时 explorer 无法定位）。
+  // explorer 成功时也可能以非 0 退出，因此只有明确的启动/初始化失败才算失败。
+  const revealInFileManager = (target) => new Promise((resolve) => {
+    let isDir = false;
+    try { isDir = statSync(target).isDirectory(); } catch { /* 不存在则按文件处理 */ }
+    const dir = isDir ? target : path.dirname(target);
+    let cmd;
+    let args;
+    if (process.platform === 'win32') { cmd = 'explorer.exe'; args = isDir ? [target] : ['/select,' + target]; }
+    else if (process.platform === 'darwin') { cmd = 'open'; args = [dir]; }
+    else { cmd = 'xdg-open'; args = [dir]; }
+
+    let settled = false;
+    const finish = (r) => { if (!settled) { settled = true; resolve(r); } };
+    let child;
+    try {
+      child = execFile(cmd, args, { windowsHide: true }, (err) => {
+        if (!err) { finish({ ok: true }); return; }
+        const code = err.code;
+        // Windows explorer 正常返回 0/1；其它整数退出码表示进程未能正常初始化。
+        if (process.platform === 'win32' && (code === 0 || code === 1)) { finish({ ok: true }); return; }
+        finish({ ok: false, error: describeSpawnError(err, cmd) });
+      });
+    } catch (err) {
+      finish({ ok: false, error: describeSpawnError(err, cmd) });
+      return;
+    }
+    child.on('error', (err) => finish({ ok: false, error: describeSpawnError(err, cmd) }));
+    // 兜底：个别环境回调迟迟不来，避免请求悬挂。
+    setTimeout(() => finish({ ok: true }), 6000);
+  });
+
+  // 把子进程失败翻译成可读原因，便于前端与用户诊断（不掩盖、不臆测具体软件）。
+  const describeSpawnError = (err, cmd) => {
+    const code = err && err.code !== undefined ? err.code : (err && err.errno);
+    const msg = err && err.message ? err.message : String(err);
+    if (code === 3221225794) return cmd + ' 无法初始化（0xC0000142：当前会话没有可用的桌面 shell）';
+    if (typeof code === 'number' && code < 0) return cmd + ' 启动失败（0x' + (code >>> 0).toString(16) + '）';
+    return cmd + ' 调用失败：' + msg + (code !== undefined ? '（code=' + code + '）' : '');
+  };
+
   // 在资源管理器中打开/定位（Node 直接调用系统文件管理器，不依赖整合包后端）。
+  // 失败如实上报：早前版本用空回调吞掉子进程错误并无条件返回 200，
+  // 受限环境下前端只看到“没反应”，无法诊断。
   ctx.effect(
     () => ctx.webServer.register({
       kind: 'exact',
@@ -356,21 +401,8 @@ export function apply(ctx) {
         let p = '';
         try { p = (JSON.parse(body.toString('utf8') || '{}').path) || ''; } catch { p = ''; }
         if (!p || !path.isAbsolute(p)) { sendJson(res, 400, { ok: false, error: '需要绝对路径。' }); return; }
-        let isDir = false;
-        try { isDir = statSync(p).isDirectory(); } catch { /* 不存在则按文件处理 */ }
-        try {
-          if (process.platform === 'win32') {
-            if (isDir) execFile('explorer.exe', [p], { windowsHide: true }, () => {});
-            else execFile('explorer.exe', ['/select,', p], { windowsHide: true }, () => {});
-          } else if (process.platform === 'darwin') {
-            execFile('open', [isDir ? p : path.dirname(p)], () => {});
-          } else {
-            execFile('xdg-open', [isDir ? p : path.dirname(p)], () => {});
-          }
-          sendJson(res, 200, { ok: true });
-        } catch (err) {
-          sendJson(res, 500, { ok: false, error: String(err.message || err) });
-        }
+        const outcome = await revealInFileManager(p);
+        sendJson(res, outcome.ok ? 200 : 502, outcome);
       },
     }),
     'dsh-engineering-workbench: POST /api/workbench/reveal',

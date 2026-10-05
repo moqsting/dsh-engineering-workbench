@@ -165,12 +165,41 @@ window.__ModuleLoader__.load({
     }
 
     /* ---------- 文件页（从文件区目录开始；预览走 DSH 原生查看器） ---------- */
+
+    // 上级目录（纯字符串运算，不依赖 path 模块）
+    function parentDirOf(p) {
+      const s = String(p).replace(/[\\/]+$/, "");
+      const i = Math.max(s.lastIndexOf("\\"), s.lastIndexOf("/"));
+      return i > 0 ? s.slice(0, i) : s;
+    }
+
+    // 当前会话 id。两条来源，按可靠性排序：
+    //   1) uiSession.adapter.current —— 主视图持有的会话，与主栏显示哪个面板无关
+    //      （切到工作台面板不会清空 mainReference，故始终有效）；
+    //   2) sidebarRight.mounted —— 仅当「对话占满主栏」(activePanelId === null) 时才有值，
+    //      切到工作台面板后必为 undefined，只作兜底。
+    function currentSessionId() {
+      try {
+        const ui = uiSessionService;
+        if (ui && ui.adapter && ui.adapter.current) {
+          const k = ui.adapter.current.getSnapshot().key;
+          if (k) return k;
+        }
+      } catch { /* 落入兜底 */ }
+      try {
+        const m = sidebarRight && sidebarRight.mounted ? sidebarRight.mounted.getSnapshot() : void 0;
+        if (m) return m;
+      } catch { /* 无可用来源 */ }
+      return void 0;
+    }
+
     function FilesPage() {
       const [workspace, setWorkspace] = useState(null); // null=加载中；""=未设置
       const [cur, setCur] = useState("");
       const [parent, setParent] = useState(null);
       const [entries, setEntries] = useState([]);
       const [err, setErr] = useState(null);
+      const [notice, setNotice] = useState(null);
 
       const loadDir = useCallback(async (p) => {
         setErr(null);
@@ -193,15 +222,31 @@ window.__ModuleLoader__.load({
       // 用 DSH 原生文件查看器打开（右侧栏 documentPreview：文本/markdown/图片/PDF/Excel/Office）
       const previewFile = (it) => {
         if (!sidebarRight || typeof sidebarRight.openResource !== "function") { setErr("当前 DSH 环境不提供原生文件预览。"); return; }
-        let sessionId;
-        try { sessionId = sidebarRight.mounted ? sidebarRight.mounted.getSnapshot() : void 0; } catch { sessionId = void 0; }
-        if (sessionId === undefined || sessionId === null) { setErr("当前没有活动的会话，暂时无法打开预览。"); return; }
-        try { sidebarRight.openResource(sessionFileAddress(sessionId, it.path)); }
+        const sessionId = currentSessionId();
+        if (!sessionId) {
+          setErr("当前没有活动会话，无法使用原生预览；请先在对话中打开或新建一个会话。");
+          return;
+        }
+        try { sidebarRight.openResource(sessionFileAddress(sessionId, it.path)); setErr(null); setNotice(null); }
         catch (e2) { setErr("打开预览失败：" + String(e2 && e2.message ? e2.message : e2)); }
       };
+
+      // 在系统文件管理器中定位；系统不提供文件管理器时（受限/无 shell 环境），
+      // 退回工作台内的目录定位，保证任何环境都有确定行为。
       const revealInExplorer = async (it) => {
-        try { await post("/api/workbench/reveal", { path: it.path }); }
-        catch (e2) { setErr("无法在资源管理器中打开：" + e2.message); }
+        const targetDir = it.isDir ? it.path : parentDirOf(it.path);
+        let reason = null;
+        try {
+          const r = await post("/api/workbench/reveal", { path: it.path });
+          if (r && r.ok) { setErr(null); setNotice(null); return; }
+          reason = (r && r.error) ? r.error : "未知原因";
+        } catch (e2) { reason = e2.message; }
+        try {
+          await loadDir(targetDir);
+          setNotice("系统文件管理器不可用（" + reason + "），已在工作台内定位到该目录。");
+        } catch (e2) {
+          setErr("无法定位：" + reason + "；工作台内跳转也失败：" + e2.message);
+        }
       };
       const rowStyle = { display: "flex", gap: 8, padding: "5px 8px", cursor: "pointer", borderRadius: 6, alignItems: "center" };
       const hover = {
@@ -230,6 +275,7 @@ window.__ModuleLoader__.load({
         ),
         e("div", { style: S.body },
           err ? e("div", { style: S.err }, err) : null,
+          notice ? e("div", { style: { ...S.muted, marginBottom: 8 } }, notice) : null,
           entries.map((it) => e("div", {
             key: it.path, style: rowStyle, ...hover,
             onClick: () => (it.isDir ? loadDir(it.path) : previewFile(it)),
@@ -449,12 +495,17 @@ window.__ModuleLoader__.load({
     /* ---------- 侧栏「工作台」图标（与官方「插件」并列） ---------- */
     var sidebarRight = null;
     var layoutService = null;
+    var uiSessionService = null;
     const PANEL_ID = "dsh-engineering-workbench";
     const inject = ["slots"];
     function apply(ctx) {
       // 原生文件预览桥（DSH 官方右侧栏 documentPreview；软依赖，缺失仅影响预览）
       ctx.inject(["sidebarRight"], (scoped) => {
         if (scoped.sidebarRight) sidebarRight = scoped.sidebarRight;
+      });
+      // 会话 UI 服务：提供“主视图持有的会话”id（不随主栏面板切换失效；软依赖）
+      ctx.inject(["uiSession"], (scoped) => {
+        if (scoped.uiSession) uiSessionService = scoped.uiSession;
       });
       // 布局服务（面板切换；软依赖）
       ctx.inject(["layout"], (scoped) => {
