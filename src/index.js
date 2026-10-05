@@ -7,7 +7,7 @@
 import { resolveRuntime } from './runtime.js';
 import { findRunning, startWorkbench, stopWorkbench } from './workbench.js';
 import { readdirSync, statSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -358,20 +358,19 @@ export function apply(ctx) {
     const finish = (r) => { if (!settled) { settled = true; resolve(r); } };
     let child;
     try {
-      child = execFile(cmd, args, { windowsHide: true }, (err) => {
-        if (!err) { finish({ ok: true }); return; }
-        const code = err.code;
-        // Windows explorer 正常返回 0/1；其它整数退出码表示进程未能正常初始化。
-        if (process.platform === 'win32' && (code === 0 || code === 1)) { finish({ ok: true }); return; }
-        finish({ ok: false, error: describeSpawnError(err, cmd) });
-      });
+      // 用 spawn + stdio:'ignore'：不捕获子进程管道输出，兼容受限/沙箱环境
+      //（execFile 默认管道捕获在无命名管道环境下会 EPERM）。
+      child = spawn(cmd, args, { stdio: 'ignore', windowsHide: true });
     } catch (err) {
       finish({ ok: false, error: describeSpawnError(err, cmd) });
       return;
     }
     child.on('error', (err) => finish({ ok: false, error: describeSpawnError(err, cmd) }));
-    // 兜底：个别环境回调迟迟不来，避免请求悬挂。
-    setTimeout(() => finish({ ok: true }), 6000);
+    // 进程一旦成功创建即视为“已发起”。资源管理器是否真的弹出窗口取决于目标桌面会话
+    //（无桌面/服务会话下 explorer 无法显示窗口），子进程退出码无法可靠反映这一点
+    //（explorer 常经 DDE 转发给既有实例后立即退出）。前端据此只做“尽力而为”。
+    child.on('spawn', () => finish({ ok: true }));
+    setTimeout(() => finish({ ok: true }), 3000);
   });
 
   // 把子进程失败翻译成可读原因，便于前端与用户诊断（不掩盖、不臆测具体软件）。

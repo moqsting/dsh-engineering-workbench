@@ -227,25 +227,42 @@ window.__ModuleLoader__.load({
           setErr("当前没有活动会话，无法使用原生预览；请先在对话中打开或新建一个会话。");
           return;
         }
-        try { sidebarRight.openResource(sessionFileAddress(sessionId, it.path)); setErr(null); setNotice(null); }
-        catch (e2) { setErr("打开预览失败：" + String(e2 && e2.message ? e2.message : e2)); }
+        const address = sessionFileAddress(sessionId, it.path);
+        const open = () => {
+          try { sidebarRight.openResource(address); setErr(null); setNotice(null); }
+          catch (e2) { setErr("打开预览失败：" + String(e2 && e2.message ? e2.message : e2)); }
+        };
+        // 原生预览在右侧栏，属于“对话视图”。openResource 内部 require() 依赖 onScreen（mounted）
+        // 非空，而 onScreen 只在主栏显示对话（activePanelId === null）时才有值。
+        // 因此若当前正显示工作台面板，先切回对话让右侧栏挂载，再打开预览。
+        let active = null;
+        try { active = layoutService && layoutService.panelInfo ? layoutService.panelInfo.getSnapshot().activePanelId : null; } catch { active = null; }
+        if (active === PANEL_ID) {
+          try { if (layoutService && typeof layoutService.selectPanel === "function") layoutService.selectPanel(null); } catch { /* 切回失败则直接尝试 */ }
+          setTimeout(open, 0);
+          return;
+        }
+        open();
       };
 
-      // 在系统文件管理器中定位；系统不提供文件管理器时（受限/无 shell 环境），
-      // 退回工作台内的目录定位，保证任何环境都有确定行为。
+      // 定位文件所在目录：主行为是工作台内跳转（任何环境都确定可见、可靠）；
+      // 系统资源管理器作为“尽力而为”的增强——无桌面/服务会话下无法弹窗，
+      // 但不会影响上面的定位结果。
       const revealInExplorer = async (it) => {
         const targetDir = it.isDir ? it.path : parentDirOf(it.path);
-        let reason = null;
-        try {
-          const r = await post("/api/workbench/reveal", { path: it.path });
-          if (r && r.ok) { setErr(null); setNotice(null); return; }
-          reason = (r && r.error) ? r.error : "未知原因";
-        } catch (e2) { reason = e2.message; }
         try {
           await loadDir(targetDir);
-          setNotice("系统文件管理器不可用（" + reason + "），已在工作台内定位到该目录。");
         } catch (e2) {
-          setErr("无法定位：" + reason + "；工作台内跳转也失败：" + e2.message);
+          setErr("无法定位到该目录：" + e2.message);
+          return;
+        }
+        const base = it.isDir ? "已定位到目录：" : "已定位到文件所在目录：";
+        try {
+          const r = await post("/api/workbench/reveal", { path: it.path });
+          if (r && r.ok) setNotice(base + targetDir + "（已请求系统资源管理器打开）");
+          else setNotice(base + targetDir + "（系统资源管理器不可用：" + ((r && r.error) || "未知原因") + "）");
+        } catch (e2) {
+          setNotice(base + targetDir + "（系统资源管理器不可用：" + e2.message + "）");
         }
       };
       const rowStyle = { display: "flex", gap: 8, padding: "5px 8px", cursor: "pointer", borderRadius: 6, alignItems: "center" };
