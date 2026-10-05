@@ -366,12 +366,22 @@ export function apply(ctx) {
       return;
     }
     child.on('error', (err) => finish({ ok: false, error: describeSpawnError(err, cmd) }));
-    // 进程一旦成功创建即视为“已发起”。资源管理器是否真的弹出窗口取决于目标桌面会话
-    //（无桌面/服务会话下 explorer 无法显示窗口），子进程退出码无法可靠反映这一点
-    //（explorer 常经 DDE 转发给既有实例后立即退出）。前端据此只做“尽力而为”。
-    child.on('spawn', () => finish({ ok: true }));
-    setTimeout(() => finish({ ok: true }), 3000);
+    child.on('exit', (code) => {
+      // explorer 正常打开或经 DDE 转发给既有实例后返回 0 或 1；0xC0000142 是
+      // “进程在无桌面会话中无法初始化”的明确失败，必须如实上报而非假装成功。
+      if (code === 0 || code === 1) { finish({ ok: true }); return; }
+      finish({ ok: false, error: describeExitCode(code, cmd) });
+    });
+    // 兜底：个别环境 explorer 长期驻留不退出，视为已发起。
+    setTimeout(() => finish({ ok: true }), 5000);
   });
+
+  // 把子进程退出码翻译成可读原因（不掩盖、不臆测具体软件）。
+  const describeExitCode = (code, cmd) => {
+    const ucode = (typeof code === 'number' ? code : 0) >>> 0;
+    if (ucode === 0xc0000142) return cmd + ' 无法在当前会话显示窗口（0xC0000142：无桌面 shell）';
+    return cmd + ' 异常退出（code=' + code + '，0x' + ucode.toString(16) + '）';
+  };
 
   // 把子进程失败翻译成可读原因，便于前端与用户诊断（不掩盖、不臆测具体软件）。
   const describeSpawnError = (err, cmd) => {
